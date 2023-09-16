@@ -1,12 +1,3 @@
-local metricDataWA = metricDataWA or {}
-local metricRatesWA = metricRatesWA or {}
-local bDebug = false
-
-local logger = {
-    debug = function(...) 
-        logger.debug(table.concat({...}, " "))
-    end
-}
 
 local function filter(tbl, condition)
     local out = {}
@@ -17,7 +8,9 @@ local function filter(tbl, condition)
     end
     return out
 end
-
+--chronology
+local metricDataWA = metricDataWA or {}
+local metricRatesWA = metricRatesWA or {}
 function ResetTarget(unit)
     logger.debug("ResetTarget:",unit)
     
@@ -169,8 +162,9 @@ function generateMetrics()
     else
         metrics.ttd_mana_self = math.huge
     end
-    logger.debug(stringifyTable(metrics))
+    logger.info(stringifyTable(metrics))
     
     return metrics
     
 end
+

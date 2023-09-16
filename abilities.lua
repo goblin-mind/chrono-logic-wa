@@ -1,11 +1,41 @@
-local bDebug = false
+--commons
+local LogLevel = {DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4}
+local logLevel = LogLevel.WARN
 
-local logger = {
-    debug = function(...) 
+local function logMessage( level, ...)
+    if level >= logLevel then
         print(table.concat({...}, " "))
     end
+end
+
+
+logger = {
+    logLevel = LogLevel.DEBUG,
+    
+    log = logMessage,
+    
+    debug = function( ...) logMessage( LogLevel.DEBUG, ...) end,
+    info = function( ...) logMessage( LogLevel.INFO, ...) end,
+    warn = function( ...) logMessage( LogLevel.WARN, ...) end,
+    error = function( ...) logMessage( LogLevel.ERROR, ...) end
 }
 
+function stringifyTable(t, indent)
+    indent = indent or ""
+    local result = "{\n"
+    for k, v in pairs(t) do
+        result = result .. indent .. "  " .. tostring(k) .. " : "
+        if type(v) == "table" then
+            result = result .. stringifyTable(v, indent .. "  ") .. ",\n"
+        else
+            result = result .. tostring(v) .. ",\n"
+        end
+    end
+    result = result .. indent .. "}"
+    return result
+end
+
+--abilities
 local function GetSpellValueFromTooltip(spellID)
     if not spellID then
         return nil, nil, nil, nil, nil
@@ -18,14 +48,16 @@ local function GetSpellValueFromTooltip(spellID)
     local spellValueMin, spellValueMax, isHeal, isAoe, duration
     for i = 1, tooltip:NumLines() do
         local line = _G["MyScanningTooltipTextLeft" .. i]
-        local text = line:GetText()
-        
+        local text = string.lower(line:GetText())
+
         spellValueMin, spellValueMax  = string.match(text, "(%d+)%s+to%s+(%d+)")
-        duration = string.match(text, "over%s+(%d+)%s+sec")
-        isHeal = isHeal or string.match(text, "restore") or string.match(text, "heal")
-        isAoe = isAoe or string.match(text, "allies") or string.match(text, "enemies")
-        
-        if spellValueMin and duration then
+        duration = string.match(text, "over%s+(%d+)%s+sec%s+")
+        isHeal = isHeal or (string.find(text, "restor[%a]*") or string.find(text, "heal[%a]*")) and true
+        isAoe = isAoe or string.match(text, "allies|enemies|members")
+        aDot,duration = string.match(text, "additional (%d+)%s+over (%d+)") 
+        -- logger.warn("getting tooltip",text)
+        if spellValueMin then
+            
             break
         end
     end
@@ -56,9 +88,10 @@ local function GeneratePlayerSpellList()
         local castTime = CalculateSpellCastTime(spellId)
         local manaCost = 0;
         local costInfo = GetSpellPowerCost(spellName)
+        
         if costInfo then
             for _, cost in ipairs(costInfo) do
-                if cost.type == "MANA" then
+                if cost.name == "MANA" or cost.name == "ENERGY" or cost.name == "RAGE" then
                     manaCost = cost.minCost
                 end
             end
@@ -67,7 +100,7 @@ local function GeneratePlayerSpellList()
             break
         end
         if spellType ~= "FUTURESPELL" and valueMin then
-            table.insert(spellList, {id = spellId, name = spellName,manaCost=manaCost, valueMin = valueMin, castTime=castTime or 0,duration=duration,isHeal=isHeal,isAoe=false})
+            table.insert(spellList, {id = spellId, name = spellName,manaCost=manaCost, valueMin = valueMin, castTime=castTime or 0,duration=duration or castTime,isHeal=isHeal,isAoe=false})
         end
         i = i + 1
     end
@@ -112,7 +145,7 @@ local function GeneratePlayerSpellList()
             end
         end
     end
-    logger.debug(stringifyTable(spellList))
+    logger.info(stringifyTable(spellList))
     return spellList
 end
 
@@ -124,20 +157,7 @@ end
 
 local spellList = GeneratePlayerSpellList()
 
-function stringifyTable(t, indent)
-    indent = indent or ""
-    local result = "{\n"
-    for k, v in pairs(t) do
-        result = result .. indent .. "  " .. tostring(k) .. " : "
-        if type(v) == "table" then
-            result = result .. stringifyTable(v, indent .. "  ") .. ",\n"
-        else
-            result = result .. tostring(v) .. ",\n"
-        end
-    end
-    result = result .. indent .. "}"
-    return result
-end
+
 local function isSpellUsable(spellId)
     local isUsable, notEnoughMana = IsUsableSpell(spellId)
     return isUsable and  notEnoughMana == false
@@ -149,55 +169,49 @@ local function safelyGetUnitHealthMiss(unit)
     return maxHealth - currentHealth
 end
 function pickBestAction(metrics)
-    if not metrics then return nil end  -- Handling nil metrics
+    if not metrics then return nil end
     
-    local bestSpell = {}
-    local candidates = {}
+    local bestAction = nil
+    local maxPotential = 0
     
-    
-    
-    -- Urgency Check
-    for _, unit in pairs(metrics.minttd_party.targets or {}) do
-        for _, spell in pairs(spellList or {}) do
-            if spell.isHeal and spell.castTime <= metrics.minttd_party.value and isSpellUsable(spell.id) then
-                table.insert(candidates, {spell=spell, target=unit})
+    for _, spell in pairs(spellList or {}) do
+        if isSpellUsable(spell.id) then
+            local potential = 0
+
+            -- Healing logic
+            if spell.isHeal then
+                for _, unit in pairs(metrics.minttd_party.targets or {}) do
+                    local unitMissingHealth = safelyGetUnitHealthMiss(unit)
+                    local unitPotential = math.min(unitMissingHealth, spell.valueMin or 0)
+                    unitPotential = unitPotential / (spell.castTime or 1) / spell.manaCost
+                    if spell.isAoe then
+                        potential = potential + unitPotential  -- Accumulate for AoE
+                    else
+                        potential = math.max(potential, unitPotential)  -- Max for single target
+                    end
+                end
+            -- Damage logic
+            else
+                for _, unit in pairs(metrics.maxttd_enemies.targets or {}) do
+                    local unitHealth = UnitHealth(unit) or 0
+                    local unitPotential = math.min(unitHealth, spell.valueMin or 0)
+                    unitPotential = unitPotential / (spell.duration or 1) / spell.manaCost
+                    if spell.isAoe then
+                        potential = potential + unitPotential  -- Accumulate for AoE
+                    else
+                        potential = math.max(potential, unitPotential)  -- Max for single target
+                    end
+                end
+            end
+            logger.warn(stringifyTable({spell,potential}))
+            if potential > maxPotential then
+                
+                maxPotential = potential
+                bestAction = spell
+                bestAction.potential = potential
             end
         end
     end
     
-    for _, unit in pairs(metrics.maxttd_enemies.targets or {}) do
-        for _, spell in pairs(spellList or {}) do
-            if not spell.isHeal and spell.castTime <= metrics.maxttd_enemies.value and isSpellUsable(spell.id) then
-                table.insert(candidates, {spell=spell, target=unit})
-            end
-        end
-    end
-    
-    -- Efficiency and Precision Checks
-    for _, candidate in pairs(candidates) do
-        local spell = candidate.spell
-        local unit = candidate.target
-        local unitMissingHealth = safelyGetUnitHealthMiss(unit)  -- Update this based on your logic
-        local efficiency = spell.valueMin / spell.manaCost
-        local precision = math.abs(unitMissingHealth - spell.valueMin)
-        logger.debug("considering:",unit,spell.name,unitMissingHealth,efficiency,precision )
-        if spell.isHeal then
-            if spell.isAoe and metrics.party_num_hp50_dtpsgt0 > 1 then
-                efficiency = efficiency * metrics.party_num_hp50_dtpsgt0
-            end
-            if (spell.duration and metrics.minttd_party.value >= spell.duration) or (precision < unitMissingHealth * 0.2) then
-                table.insert(bestSpell, {spell=spell, target=unit, metric=efficiency})
-            end
-        else
-            if spell.isAoe and metrics.enemy_num_hp50_dtpsgt0 > 1 then
-                efficiency = efficiency * metrics.enemy_num_hp50_dtpsgt0
-            end
-            if (spell.duration and metrics.maxttd_enemies.value >= spell.duration) or (metrics.maxttd_enemies.value <= metrics.minttd_party.value - 2) then
-                table.insert(bestSpell, {spell=spell, target=unit, metric=spell.valueMin }) --consider efficiency?
-            end
-        end
-    end
-    
-    table.sort(bestSpell, function(a, b) return a.metric > b.metric end)
-    return bestSpell[1] or nil  -- Handle empty bestSpell
+    return bestAction
 end
