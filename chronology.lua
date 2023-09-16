@@ -1,36 +1,34 @@
--- Initialize global data storage
 local metricDataWA = metricDataWA or {}
-metricRatesWA = metricRatesWA or {}
+local metricRatesWA = metricRatesWA or {}
 
-
-maxUnits = 80  -- Maximum number of unique units to keep track of
-unitList = {}  -- List to keep track of unit order
-
-
-function ResetTarget(guid,unit)
-    print("ResetTarget:",guid)
-    if guid then
-        
-        
-        
-        metricDataWA[guid] = {}
-        metricRatesWA[guid] = {}
-        
+local function filter(tbl, condition)
+    local out = {}
+    for i, v in ipairs(tbl) do
+        if condition(v) then
+            table.insert(out, v)
+        end
     end
-    UpdateRates('target','HEALTH',UnitHealth('target'),math.huge)
+    return out
+end
+
+function ResetTarget(unit)
+    print("ResetTarget:",unit)
     
+    metricDataWA[unit] = {}
+    metricRatesWA[unit] = {}
+    
+    UpdateRates(unit,'HEALTH',UnitHealth(unit))
 end
 
 
 function UpdateRates(unit, metric, value)
-    local guid = UnitGUID(unit)
+    local guid = unit
     local timestamp = GetTime()
     -- Initialization code ...
     
     -- Initialize if nil
     if not metricDataWA then metricDataWA = {} end
     if not metricRatesWA then metricRatesWA = {} end
-    if not unitList then unitList = {} end
     
     -- Check GUID
     if not guid then return end
@@ -44,7 +42,7 @@ function UpdateRates(unit, metric, value)
     
     
     table.insert(metricDataWA[guid][metric], {value = value, timestamp = timestamp})
-    print("senseValue:", guid, unit, value,timestamp)
+    print("senseValue:", unit,metric, value,'time:'..timestamp)
     -- Remove samples older than 3 seconds
     local currentTime = timestamp
     if (metricRatesWA[guid][metric]~=0)then
@@ -66,25 +64,106 @@ function UpdateRates(unit, metric, value)
     local avgRate = (totalTime > 0) and (sum / totalTime) or 0
     
     metricRatesWA[guid][metric] = avgRate
-    print("senseRate:", guid, unit, metric, metricRatesWA[guid][metric])
+    print("senseRate:", unit, metric, metricRatesWA[guid][metric])
 end
 
 
--- Function to calculate Time to Death based on stored decay rates
-function GetTTD(unit,metric)
-    local guid = UnitGUID(unit)
-    -- Ensure metricRatesWA is initialized and has data for the unit and metric
-    if not metricRatesWA or not metricRatesWA[guid] or not metricRatesWA[guid][metric] then
-        return math.huge  -- Return infinite time if data is not available
-    end
-    
-    local decayRate = metricRatesWA[guid][metric]
-    
-    if decayRate >= 0 then 
-        return math.huge  -- If health is stable or increasing, return infinite TTD
-    end
-    
-    local currentHealth = metric=='health' and UnitHealth(unit)or UnitPower(unit)
-    return currentHealth / math.abs(decayRate)
+local function isHealer(unitID)
+    local _, unitClass = UnitClass(unitID)
+    return unitClass == "PRIEST" or unitClass == "DRUID" or unitClass == "PALADIN" or unitClass == "SHAMAN"
 end
 
+function generateMetrics()
+    local metrics = {
+        minttd_party = {value = math.huge, targets = {}},
+        maxttd_enemies = {value = 0, targets = {}},
+        ttd_mana_self = 0,
+        ttd_otherhealers = 0,
+        max_dtps_party = {value = 0, targets = {}},
+        average_dtps_party = 0,
+        party_num_hp50_dtpsgt0 = 0,
+        enemy_num_hp50_dtpsgt0 = 0
+    }
+    
+    local totalDtpsParty = 0
+    local partyCount = 0
+    
+    for unit, metricTable in pairs(metricRatesWA or {}) do
+        local unitHealth = UnitHealth(unit) or 0
+        local unitHealthMax = UnitHealthMax(unit) or 1
+        local unitPower = UnitPower(unit, 0) or 0
+        local rate = metricTable and metricTable['HEALTH'] or 0
+        local ttd = (rate ~= 0) and (unitHealth / -rate) or math.huge
+        
+        if UnitIsFriend("player", unit) then
+            
+            print('preconsidering unit:',unit,rate)
+            if rate < 0 then
+                if ttd < metrics.minttd_party.value then
+                    metrics.minttd_party.value = ttd
+                    metrics.minttd_party.targets = {unit}
+                elseif ttd == metrics.minttd_party.value then
+                    table.insert(metrics.minttd_party.targets, unit)
+                end
+                
+                local dtps = -rate
+                if dtps > metrics.max_dtps_party.value then
+                    metrics.max_dtps_party.value = dtps
+                    metrics.max_dtps_party.targets = {unit}
+                elseif dtps == metrics.max_dtps_party.value then
+                    table.insert(metrics.max_dtps_party.targets, unit)
+                end
+                
+                totalDtpsParty = totalDtpsParty + dtps
+                partyCount = partyCount + 1
+            end
+            
+            if unitHealth / unitHealthMax <= 0.5 and rate > 0 then
+                metrics.party_num_hp50_dtpsgt0 = metrics.party_num_hp50_dtpsgt0 + 1
+            end
+            if isHealer(unit) then
+                local healerManaRate = metricTable and metricTable['MANA'] or 0
+                if healerManaRate < 0 and unitPower > 0 then
+                    local ttd = unitPower / -healerManaRate
+                    if ttd < metrics.ttd_otherhealers or metrics.ttd_otherhealers == 0 then
+                        metrics.ttd_otherhealers = ttd
+                    end
+                end
+            end
+        else
+            
+            print('preconsidering unit:',unit,rate)
+            if rate < 0 then
+                
+                if ttd > metrics.maxttd_enemies.value then
+                    metrics.maxttd_enemies.value = ttd
+                    metrics.maxttd_enemies.targets = {unit}
+                elseif ttd == metrics.maxttd_enemies.value then
+                    table.insert(metrics.maxttd_enemies.targets, unit)
+                end
+            end
+            
+            if unitHealth / unitHealthMax <= 0.5 and rate < 0 then
+                metrics.enemy_num_hp50_dtpsgt0 = metrics.enemy_num_hp50_dtpsgt0 + 1
+            end
+        end
+    end
+    
+    if partyCount > 0 then
+        metrics.average_dtps_party = totalDtpsParty / partyCount
+    end
+    
+    local selfManaRate = metricRatesWA["player"] and metricRatesWA["player"]["MANA"] or 0
+    local selfPower = UnitPower("player", 0) or 0
+    
+    
+    if selfManaRate < 0 and selfPower > 0 then
+        metrics.ttd_mana_self = selfPower / -selfManaRate
+    else
+        metrics.ttd_mana_self = math.huge
+    end
+    print(stringifyTable(metrics))
+    
+    return metrics
+    
+end
