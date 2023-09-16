@@ -72,7 +72,7 @@ local function isHealer(unitID)
     local _, unitClass = UnitClass(unitID)
     return unitClass == "PRIEST" or unitClass == "DRUID" or unitClass == "PALADIN" or unitClass == "SHAMAN"
 end
-
+lastmetrics = nil
 function generateMetrics()
     local metrics = {
         minttd_party = {value = math.huge, targets = {}},
@@ -162,8 +162,8 @@ function generateMetrics()
     else
         metrics.ttd_mana_self = math.huge
     end
-    logger.info(stringifyTable(metrics))
-    
+    --logger.debug(stringifyTable(metrics))
+    lastmetrics = metrics
     return metrics
     
 end
