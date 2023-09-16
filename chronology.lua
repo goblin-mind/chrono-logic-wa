@@ -1,5 +1,12 @@
 local metricDataWA = metricDataWA or {}
 local metricRatesWA = metricRatesWA or {}
+local bDebug = false
+
+local logger = {
+    debug = function(...) 
+        logger.debug(table.concat({...}, " "))
+    end
+}
 
 local function filter(tbl, condition)
     local out = {}
@@ -12,7 +19,7 @@ local function filter(tbl, condition)
 end
 
 function ResetTarget(unit)
-    print("ResetTarget:",unit)
+    logger.debug("ResetTarget:",unit)
     
     metricDataWA[unit] = {}
     metricRatesWA[unit] = {}
@@ -42,7 +49,7 @@ function UpdateRates(unit, metric, value)
     
     
     table.insert(metricDataWA[guid][metric], {value = value, timestamp = timestamp})
-    print("senseValue:", unit,metric, value,'time:'..timestamp)
+    logger.debug("senseValue:", unit,metric, value,'time:'..timestamp)
     -- Remove samples older than 3 seconds
     local currentTime = timestamp
     if (metricRatesWA[guid][metric]~=0)then
@@ -64,7 +71,7 @@ function UpdateRates(unit, metric, value)
     local avgRate = (totalTime > 0) and (sum / totalTime) or 0
     
     metricRatesWA[guid][metric] = avgRate
-    print("senseRate:", unit, metric, metricRatesWA[guid][metric])
+    logger.debug("senseRate:", unit, metric, metricRatesWA[guid][metric])
 end
 
 
@@ -97,7 +104,7 @@ function generateMetrics()
         
         if UnitIsFriend("player", unit) then
             
-            print('preconsidering unit:',unit,rate)
+            logger.debug('preconsidering unit:',unit,rate)
             if rate < 0 then
                 if ttd < metrics.minttd_party.value then
                     metrics.minttd_party.value = ttd
@@ -132,7 +139,7 @@ function generateMetrics()
             end
         else
             
-            print('preconsidering unit:',unit,rate)
+            logger.debug('preconsidering unit:',unit,rate)
             if rate < 0 then
                 
                 if ttd > metrics.maxttd_enemies.value then
@@ -162,7 +169,7 @@ function generateMetrics()
     else
         metrics.ttd_mana_self = math.huge
     end
-    print(stringifyTable(metrics))
+    logger.debug(stringifyTable(metrics))
     
     return metrics
     
