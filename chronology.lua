@@ -46,8 +46,8 @@ function UpdateRates(unit, metric, value)
     -- Remove samples older than 3 seconds
     local currentTime = timestamp
     if (metricRatesWA[guid][metric]~=0)then
-        metricDataWA[guid][metric] = filter(metricDataWA[guid][metric], function(sample)
-                return currentTime - sample.timestamp <= 3
+        metricDataWA[guid][metric] = metricDataWA[guid][metric] filter(metricDataWA[guid][metric], function(sample)
+                return currentTime - sample.timestamp <= 5
         end)
     end
     
@@ -72,7 +72,7 @@ local function isHealer(unitID)
     local _, unitClass = UnitClass(unitID)
     return unitClass == "PRIEST" or unitClass == "DRUID" or unitClass == "PALADIN" or unitClass == "SHAMAN"
 end
-lastmetrics = nil
+
 function generateMetrics()
     local metrics = {
         minttd_party = {value = math.huge, targets = {}},
@@ -104,7 +104,7 @@ function generateMetrics()
                 metrics.max_missing_hp = max_missing_hp
             end
             logger.debug('preconsidering unit:',_unit,rate)
-            if rate < 0 then
+            if rate <= 0 then
                 if ttd < metrics.minttd_party.value then
                     metrics.minttd_party.value = ttd
                     metrics.minttd_party.targets = {unit}
@@ -137,7 +137,7 @@ function generateMetrics()
         else
             
             logger.debug('preconsidering unit:',unit,rate)
-            if rate < 0 then
+            if rate <= 0 then
                 local dtps = -rate
                 if dtps < metrics.min_dtps_enemies.value then
                     metrics.min_dtps_enemies.value = dtps
@@ -170,8 +170,7 @@ function generateMetrics()
     else
         metrics.ttd_mana_self = math.huge
     end
-    --logger.debug(stringifyTable(metrics))
-    lastmetrics = metrics
+    
     return metrics
     
 end
