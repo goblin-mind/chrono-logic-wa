@@ -1,6 +1,6 @@
 --commons
 local LogLevel = {DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4}
-local logLevel = LogLevel.ERROR
+local logLevel = LogLevel.WARN
 
 local function logMessage( level, ...)
     if level >= logLevel then
@@ -49,16 +49,16 @@ local function GetSpellValueFromTooltip(spellID)
     for i = 1, tooltip:NumLines() do
         local line = _G["MyScanningTooltipTextLeft" .. i]
         local text = string.lower(line:GetText())
-        spellValueMin, spellValueMax = string.match(text, "(%d+)%s+to%s+(%d+)%s+[%a%s]+%s+damage")
-        if not spellValueMin then
-            spellValueMin, spellValueMax = string.match(text, "(%d+)%s+to%s+(%d+)%s+[%a%s]+%s+healing")
-        end
-        if not spellValueMin then
-            spellValueMin, spellValueMax = string.match(text, "(%d+)%s+to%s+(%d+).$")
-        end
-        if not spellValueMin then
-            spellValueMin = string.match(text, "(%d+)%s+damage")
-        end
+        spellValueMin = tonumber(string.match(text, "(%d+)%s+to%s+(%d+)%s+[%a%s]+%s+damage")) or 0
+        --if not spellValueMin then
+            spellValueMin = spellValueMin + ( tonumber(string.match(text, "(%d+)%s+to%s+%d+%s+[%a%s]+%s+healing") )or 0)
+       -- end
+       -- if not spellValueMin then
+            spellValueMin = spellValueMin + (tonumber(string.match(text, "(%d+)%s+to%s+%d+.$")) or 0)
+        --end
+        --if not spellValueMin then
+            spellValueMin = spellValueMin + (tonumber(string.match(text, "(%d+)%s+%a+%s+damage")) or 0)
+       -- end
         
         duration = string.match(text, "over%s+(%d+)%s+sec") or string.match(text, "for%s+(%d+)%s+sec")
         
@@ -109,7 +109,7 @@ local function GeneratePlayerSpellList()
             break
         end
         if spellType ~= "FUTURESPELL" and valueMin then
-            table.insert(spellList, {id = spellId,texture=icon, name = spellName,manaCost=manaCost, valueMin = valueMin, castTime=castTime or 0,duration=duration or 1,isHeal=isHeal,isAoe=false})
+            table.insert(spellList, {id = spellId,texture=icon, name = spellName,manaCost=manaCost, valueMin = valueMin, castTime=castTime or 1.5,duration=duration or 1,isHeal=isHeal,isAoe=false})
         end
         i = i + 1
     end
@@ -154,7 +154,7 @@ local function GeneratePlayerSpellList()
             end
         end
     end
-    logger.info(stringifyTable(spellList))
+    logger.warn(stringifyTable(spellList))
     return spellList
 end
 
@@ -173,6 +173,8 @@ local function hasDebuff(unit, debuffName, timeThreshold)
     
     local name, icon, count, debuffType, duration, expirationTime, unitCaster, canStealOrPurge, nameplateShowPersonal, spellId = AuraUtil.FindAuraByName(debuffName, unit, "HARMFUL")
     if name == debuffName then
+        print("found",name)
+        
         return true
     end
     return false
@@ -197,24 +199,19 @@ end
 
 local function isSpellUsable(spellId)
     if not spellId then return true end 
-    local isUsable, notEnoughMana = IsUsableSpell(spellId)
+    --local isUsable, notEnoughMana = IsUsableSpell(spellId)
     local start, duration, enabled = GetSpellCooldown(spellId)
     
     local timeLeft = start + duration - GetTime()
     local isOnCooldown = (timeLeft > 0.3)
     
-    return isUsable and notEnoughMana == false and not isOnCooldown
-end
-local function safelyGetUnitHealthMiss(unit)
-    if not unit then return 0 end
-    local maxHealth = UnitHealthMax(unit) or 0
-    local currentHealth = UnitHealth(unit) or 0
-    return maxHealth - currentHealth
+    return  not isOnCooldown --isUsable and notEnoughMana == false and
 end
 
-local function getPotential(unitHealth,spell,potential)
+
+ local function getPotential(unitHealth,spell,potential)
     local unitPotential = math.min(unitHealth, spell.valueMin or 0)
-    unitPotential = unitPotential / (spell.castTime or 1) /  (spell.manaCost or spell.duration )
+    unitPotential = unitPotential / (spell.castTime or 1) /  (spell.manaCost or 1) --or spell.duration
     if spell.isAoe then
         logger.info(stringifyTable({spell,potential}))
         return  potential + unitPotential  -- Accumulate for AoE
@@ -223,7 +220,8 @@ local function getPotential(unitHealth,spell,potential)
         return math.max(potential, unitPotential)  -- Max for single target
     end
     
-end
+end 
+
 
 function pickBestAction(metrics)
     if not metrics then return nil end
@@ -240,20 +238,31 @@ function pickBestAction(metrics)
             local unitHealth =0;
             -- Healing logic
             if spell.isHeal then
-                for _, unit in pairs(metrics.minttd_party.targets or {}) do
-                    if  spell.duration>1 and not hasBuff(unit,spell.name,0.5) and (not spell.name=='Power Word:Shield' or not hasDebuff(unit,'Weakened Soul',0.5)) then 
-                        
-                        
-                        unitHealth = safelyGetUnitHealthMiss(unit)
-                        potential = getPotential(unitHealth,spell,potential)
+                if (  metrics.minttd_party.value < metrics.maxttd_enemies.value ) then
+                    for _, unit in pairs(metrics.minttd_party.targets or {}) do
+                        if  spell.duration<1 or not hasBuff(unit.unit,spell.name,0.5) and (not spell.name=='Power Word:Shield' or not hasDebuff(unit.unit,'Weakened Soul',0.5)) then 
+                            
+                            potential = getPotential(unit.unitHealth,spell,potential)
+                        end
                     end
                 end
                 -- Damage logic
             else
                 for _, unit in pairs(metrics.maxttd_enemies.targets or {}) do
-                    if spell.duration>1 and not hasDebuff(unit,spell.name,0.5) then
-                        unitHealth = UnitHealth(unit) or 0
-                        potential = getPotential(unitHealth,spell,potential)
+                    if spell.duration<1 or not hasDebuff(unit.unit,spell.name,0.5) then
+                        if (  metrics.minttd_party.value > metrics.maxttd_enemies.value ) then
+                            potential = getPotential(unit.unitHealth,spell,potential)
+                            --add implicit potential
+                        else 
+                            enemyttdsaved = (metrics.maxttd_enemies.value-unit.unitHealth/(metrics.min_dtps_enemies.value+(spell.valueMin/spell.castTime)))*metrics.max_dtps_party.value
+
+                            print("potentialbefore:",potential,enemyttdsaved,metrics.max_missing_hp)
+                            potential = getPotential(metrics.max_missing_hp,{castTime=spell.castTime,manaCost=spell.manaCost,duration=spell.duration,isAoe=true,valueMin=math.abs(enemyttdsaved)},potential) --castTime=spell.castTime,manaCost=spell.manaCost,duration=spell.duration,
+                            print("potentialafter:",potential)
+                        end
+                    else
+                        print("skip",spell.name,"already applied")
+                        
                     end
                 end
             end

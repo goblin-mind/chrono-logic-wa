@@ -76,32 +76,39 @@ lastmetrics = nil
 function generateMetrics()
     local metrics = {
         minttd_party = {value = math.huge, targets = {}},
+        max_dtps_party = {value = 0},
         maxttd_enemies = {value = 0, targets = {}},
+        min_dtps_enemies = {value = math.huge},
         ttd_mana_self = 0,
         ttd_otherhealers = 0,
-        max_dtps_party = {value = 0, targets = {}},
         average_dtps_party = 0,
+        max_missing_hp = 0,
         party_num_hp50_dtpsgt0 = 0,
         enemy_num_hp50_dtpsgt0 = 0
     }
     
     local totalDtpsParty = 0
     local partyCount = 0
-    
-    for unit, metricTable in pairs(metricRatesWA or {}) do
-        local unitHealth = UnitHealth(unit) or 0
-        local unitHealthMax = UnitHealthMax(unit) or 1
-        local unitPower = UnitPower(unit, 0) or 0
+    local max_missing_hp = 0
+    for _unit, metricTable in pairs(metricRatesWA or {}) do
+        local unitHealth = UnitHealth(_unit) or 0
+        local unitHealthMax = UnitHealthMax(_unit) or 1
+        local missingHp = unitHealthMax - unitHealth
+        local unitPower = UnitPower(_unit, 0) or 0
         local rate = metricTable and metricTable['HEALTH'] or 0
         local ttd = (rate ~= 0) and (unitHealth / -rate) or math.huge
-        
-        if UnitIsFriend("player", unit) then
-            
-            logger.debug('preconsidering unit:',unit,rate)
+        local unit = {unit=_unit,unitHealth=unitHealth,unitHealthMax=unitHealthMax}
+        if UnitIsFriend("player", _unit) then
+            if max_missing_hp>metrics.max_missing_hp then 
+                --todo check dead
+                metrics.max_missing_hp = max_missing_hp
+            end
+            logger.debug('preconsidering unit:',_unit,rate)
             if rate < 0 then
                 if ttd < metrics.minttd_party.value then
                     metrics.minttd_party.value = ttd
                     metrics.minttd_party.targets = {unit}
+                    
                 elseif ttd == metrics.minttd_party.value then
                     table.insert(metrics.minttd_party.targets, unit)
                 end
@@ -109,9 +116,6 @@ function generateMetrics()
                 local dtps = -rate
                 if dtps > metrics.max_dtps_party.value then
                     metrics.max_dtps_party.value = dtps
-                    metrics.max_dtps_party.targets = {unit}
-                elseif dtps == metrics.max_dtps_party.value then
-                    table.insert(metrics.max_dtps_party.targets, unit)
                 end
                 
                 totalDtpsParty = totalDtpsParty + dtps
@@ -121,7 +125,7 @@ function generateMetrics()
             if unitHealth / unitHealthMax <= 0.5 and rate > 0 then
                 metrics.party_num_hp50_dtpsgt0 = metrics.party_num_hp50_dtpsgt0 + 1
             end
-            if isHealer(unit) then
+            if isHealer(_unit) then
                 local healerManaRate = metricTable and metricTable['MANA'] or 0
                 if healerManaRate < 0 and unitPower > 0 then
                     local ttd = unitPower / -healerManaRate
@@ -134,6 +138,10 @@ function generateMetrics()
             
             logger.debug('preconsidering unit:',unit,rate)
             if rate < 0 then
+                local dtps = -rate
+                if dtps < metrics.min_dtps_enemies.value then
+                    metrics.min_dtps_enemies.value = dtps
+                end
                 
                 if ttd > metrics.maxttd_enemies.value then
                     metrics.maxttd_enemies.value = ttd
