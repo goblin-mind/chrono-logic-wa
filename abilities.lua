@@ -1,6 +1,6 @@
 --commons
 local LogLevel = {DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4}
-local logLevel = LogLevel.WARN
+local logLevel = LogLevel.ERROR
 
 local function logMessage( level, ...)
     if level >= logLevel then
