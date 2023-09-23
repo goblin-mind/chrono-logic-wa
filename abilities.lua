@@ -1,42 +1,4 @@
---commons
-local LogLevel = {DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4}
-local logLevel = LogLevel.ERROR
-
-local function logMessage( level, ...)
-    if level >= logLevel then
-        print(table.concat({...}, " "))
-    end
-end
-
-
-logger = {
-    logLevel = LogLevel.DEBUG,
-    
-    log = logMessage,
-    
-    debug = function( ...) logMessage( LogLevel.DEBUG, ...) end,
-    info = function( ...) logMessage( LogLevel.INFO, ...) end,
-    warn = function( ...) logMessage( LogLevel.WARN, ...) end,
-    error = function( ...) logMessage( LogLevel.ERROR, ...) end
-}
-
-function stringifyTable(t, indent)
-    indent = indent or ""
-    local result = "{\n"
-    for k, v in pairs(t) do
-        result = result .. indent .. "  " .. tostring(k) .. " : "
-        if type(v) == "table" then
-            result = result .. stringifyTable(v, indent .. "  ") .. ",\n"
-        else
-            result = result .. tostring(v) .. ",\n"
-        end
-    end
-    result = result .. indent .. "}"
-    return result
-end
-
-
---abilities
+--learn abilities from spellbook
 local function GetSpellValueFromTooltip(spellID)
     if not spellID then
         return {}
@@ -50,90 +12,122 @@ local function GetSpellValueFromTooltip(spellID)
     -- Function to add matched value to spellValueMin
     local function addMatchedValue(text,pattern)
         local match = string.match(text, pattern)
-        logger.debug(text,pattern,match)
         if match then
             spellValueMin = spellValueMin + tonumber(match)
+            return true
         end
+        return false
     end
     
-    local  spellValueMax, isHeal, isAoe, duration,isAbsorb
+    local  spellValueMax, isHeal, isAoe, duration,isAbsorb,isBuff
+    local attributeBuffs = {"stamina", "intellect", "strength", "agility", "spirit", "armor", "resistance"}  -- Add more attributes as needed
+    
     for i = 1, tooltip:NumLines() do
         local line = _G["MyScanningTooltipTextLeft" .. i]
-        local text = string.lower(line:GetText())
-        
-        addMatchedValue(text,"(%d+)%s+to%s+%d+%s+[%a%s]+%s+damage")
-        addMatchedValue(text,"(%d+)%s+to%s+%d+%s+[%a%s]+%s+healing")
-        addMatchedValue(text,"(%d+)%s+to%s+%d+%s?%p?$")  -- Assuming you meant any punctuation at the end
-        --addMatchedValue(text,"(%d+)%s+[%a-]+%s+damage") 
-        addMatchedValue(text,"(%d+)%s*[%a-]*%s+damage")
+        local text = line:GetText()
+        text = string.lower(text or '')
+        -- logger.debug(text)
+        local _ = addMatchedValue(text,"(%d+)%s+to%s+%d+%s+[%a%s]*damage") or addMatchedValue(text,"(%d+)%s+[%a%s]*damage")
+        addMatchedValue(text,"additional (%d+)%s*[%a-]*%s+damage")
+        addMatchedValue(text,"by%s+(%d+)")
         
         duration = string.match(text, "over%s+(%d+)%s+sec") or string.match(text, "for%s+(%d+)%s+sec")
         
         isAbsorb = isAbsorb or string.find(text, "absorb[%a]*") and true
         isHeal = isHeal or (string.find(text, "restor[%a]*") or string.find(text, "heal[%a]*") or isAbsorb) and true
         isAoe = isAoe or string.match(text, "allies|enemies|members")
-        --aDot,duration = string.match(text, "additional%s+(%d+)%s+over%s+(%d+)") 
+        
+        -- Detecting generic attribute buffs
+        for _, attr in ipairs(attributeBuffs) do
+            isBuff = isBuff or string.find(text, attr) and true
+            if isBuff then
+                buffAmount = string.match(text, "(%d+)%s+to%s+(%d+)")  -- Add more patterns as needed
+                break
+            end
+        end
+        
         if spellValueMin>0 then            
             break
         end
     end
     
-    return {valueMin=tonumber(spellValueMin), isHeal=isHeal, duration=tonumber(duration)or 1, isAoe=isAoe, isAbsorb=isAbsorb}
+    return {valueMin=tonumber(spellValueMin), isHeal=isHeal,isBuff=isBuff, duration=tonumber(duration)or 1, isAoe=isAoe, isAbsorb=isAbsorb}
 end
 
--- Function to calculate spell cast time
-local function CalculateSpellCastTime(spellID)
-    local name, rank, icon, castTime, minRange, maxRange, spellId = GetSpellInfo(spellID)
-    if not castTime then
-        return math.huge
-    end
-    return (castTime / 1000) 
-end
-function table_merge(t1, t2)
-    for k, v in pairs(t2) do
-        t1[k] = v
-    end
-    return t1
+spellList = {}
+
+function GetPlayerSpellList()
+    return spellList
 end
 
-local function GeneratePlayerSpellList()
-    local spellList = {}
-    
+
+function GeneratePlayerSpellList()
+    logger.info("GeneratePlayerSpellList")
     -- Spells
     local i = 1
     while true do
         local spellName, _, spellId = GetSpellBookItemName(i, "spell")
-        local spellType,_ = GetSpellBookItemInfo(i, "spell")
-        local tootipVals = GetSpellValueFromTooltip(spellId)
-        local castTime = math.max(CalculateSpellCastTime(spellId) or 1,1)
-        local manaCost = 0;
-        local costInfo = GetSpellPowerCost(spellName)
-        local icon = GetSpellTexture(spellId)
-        if costInfo then
-            for _, cost in ipairs(costInfo) do
-                if cost.name == "MANA" or cost.name == "ENERGY" or cost.name == "RAGE" then
-                    manaCost = cost.minCost
+        
+        if not spellList[spellId] and not IsPassiveSpell(spellId) then
+            local spellType,_ = GetSpellBookItemInfo(i, "spell")
+            local tooltipVals = GetSpellValueFromTooltip(spellId)
+            local castTime = math.max(CalculateSpellCastTime(spellId) or 1,1)
+            
+            
+            local manaCost = 0;
+            local costInfo = GetSpellPowerCost(spellId)
+            local icon = GetSpellTexture(spellId)
+            if costInfo then
+                for _, cost in ipairs(costInfo) do
+                    if cost.name == "MANA" or cost.name == "ENERGY" or cost.name == "RAGE" then
+                        manaCost = cost.minCost
+                    end
                 end
             end
-        end
-        if not spellName then
-            break
-        end
-        if spellType ~= "FUTURESPELL" and tootipVals.valueMin > 0 then
-            table.insert(spellList, table_merge(tootipVals,{id = spellId,texture=icon, name = spellName,manaCost=manaCost,castTime=castTime or 1.5}))
+            if not spellName then
+                break
+            end
+            if spellType ~= "FUTURESPELL" and tooltipVals.valueMin > 0 then
+                spellList[spellId] = table_merge(tooltipVals, {rank=rank,texture = icon, name = spellName, manaCost = manaCost, castTime = castTime or 1.5})
+            end
         end
         i = i + 1
+    end
+    
+    -- Create a table to hold counters for each spell name
+    local counters = {}
+    
+    -- Create an array to sort your table by name and then by manaCost
+    local sortedKeys = {}
+    for spellId, spell in pairs(spellList) do
+        table.insert(sortedKeys, spellId)
+    end
+    
+    table.sort(sortedKeys, function(a, b)
+            return spellList[a].manaCost < spellList[b].manaCost
+            
+    end)
+    
+    
+    -- Assign ranks
+    for _, spellId in ipairs(sortedKeys) do
+        local spell = spellList[spellId]
+        if not counters[spell.name] then
+            counters[spell.name] = 0
+        end
+        counters[spell.name] = counters[spell.name] + 1
+        spell.rank = counters[spell.name]
     end
     
     -- Melee
     local minDamage, maxDamage, _, _, _ = UnitDamage("player")
     local mainSpeed, offSpeed = UnitAttackSpeed("player")
-    table.insert(spellList, {id = nil, name = "Melee",manaCost = 1, valueMin = minDamage, valueMax = maxDamage, castTime = mainSpeed, duration = 1,texture=133479, isHeal = false, isAoe = false})
+    spellList['m1'] = { name = "Melee",manaCost = 1, valueMin = minDamage, valueMax = maxDamage, castTime = mainSpeed, duration = 1,texture=133479}
     
     -- Wand
     local speed, minWandDamage, maxWandDamage, _, _ = UnitRangedDamage("player")
     if speed > 0 then
-        table.insert(spellList, {id = nil, name = "Wand",manaCost = 1, valueMin = minWandDamage, valueMax = maxWandDamage, castTime = speed, duration = 1,texture=135149, isHeal = false, isAoe = false})
+        spellList['r1'] = {name = "Wand",manaCost =0, valueMin = minWandDamage, valueMax = maxWandDamage, castTime = speed, duration = 1,texture=135149}
     end
     -- Items
     local maxSlots = 18  -- Max bag slots in WoW Classic
@@ -149,70 +143,40 @@ local function GeneratePlayerSpellList()
                     local valueMin,  isHeal, duration = GetSpellValueFromTooltip(itemSpellId)
                 end
                 if (valueMin) then 
-                    table.insert(spellList, {
-                            id = itemId, 
-                            name = itemName, 
-                            valueMin = valueMin, 
-                            castTime = 0.1, 
-                            manaCost = 1,
-                            duration = duration, 
-                            isHeal = isHeal, 
-                            isAoe = false, 
-                            texture = 12345
-                    })
+                    spellList[itemId] ={
+                        name = itemName, 
+                        valueMin = valueMin, 
+                        castTime = 1, 
+                        manaCost = 1,
+                        duration = duration, 
+                        isHeal = isHeal, 
+                        texture = 12345
+                    }
                 end
             end
         end
     end
-    logger.warn(stringifyTable(spellList))
-    return spellList
 end
 
-local function GetPlayerSpellList()
-    
-    return spellList 
-end
-
-
-local spellList = GeneratePlayerSpellList()
-
-local function hasAura(unit,aura,atype)
-    local name,_ = AuraUtil.FindAuraByName(aura, unit,atype)
-    return name==aura
-end
-
-
-
-
-local function isSpellUsable(spellId)
-    if not spellId then return true end 
-    local usable,_ = IsUsableSpell(spellId)
-    --print(usable)
-    local start, duration, enabled = GetSpellCooldown(spellId)
-    
-    local timeLeft = start + duration - GetTime()
-    local isOnCooldown = (timeLeft > 1.5)
-    
-    return  usable and not isOnCooldown
-end
-
-
-local function getPotential(unitHealth,spell,potential,saveMana,dtps,inCombat)
+local function getPotential(unitHealth,spell,potential,saveMana,dtps,inCombat,dtinterval)
     local unitPotential = 0
     
     local isHot = spell.isHeal and spell.duration
+    local effectiveCastTime = (spell.castTime or 1)
+    effectiveCastTime = effectiveCastTime+effectiveCastTime/dtinterval*0.5
+    logger.info("effectiveCastTime",effectiveCastTime,dtinterval)
     
-    if isHot then 
-        unitPotential = math.min(1,dtps/(spell.valueMin/spell.duration))*spell.valueMin
-    elseif spell.isAbsorb then
+    if spell.isAbsorb then
         unitPotential = spell.valueMin
+    elseif isHot then 
+        unitPotential = math.min(1,dtps/(spell.valueMin/spell.duration))*spell.valueMin
     else
         unitPotential = math.min(unitHealth, spell.valueMin or 0)
     end
-    unitPotential = unitPotential / (not saveMana and 1 or (spell.manaCost or 1)) /(not inCombat and 1 or (spell.castTime or 1))  --or spell.duration
+    unitPotential = unitPotential / (not saveMana and 1 or (spell.manaCost or 1)) /(not inCombat and 1 or effectiveCastTime)  --or spell.duration
     
     spell.potential = unitPotential
-    logger.debug(stringifyTable(spell))
+    logger.debug("getPotential:",(spell.name or 'unknown'),(unitPotential or 0))
     if spell.isAoe then
         return  (potential or 0) + unitPotential  -- Accumulate for AoE
     else
@@ -228,31 +192,43 @@ function pickBestAction(metrics)
     local bestAction = nil
     local maxPotential = 0
     local saveMana = metrics.maxttd_enemies.value>metrics.ttd_mana_self
-    for _, spell in pairs(spellList or {}) do
-        if isSpellUsable(spell.id)   then
+    for spellId, spell in pairs(spellList or {}) do
+        if isSpellUsable(spellId)   then
             local potential = 0
             local unitHealth =0;
             -- Healing logic
+            --print(metrics.minttd_party.value , metrics.maxttd_enemies.value )
             if spell.isHeal then
+                
                 if (  metrics.minttd_party.value <= metrics.maxttd_enemies.value ) then
                     for _, unit in pairs(metrics.minttd_party.targets or {}) do
                         local _unit = unit.unit
                         local inCombat = UnitAffectingCombat(_unit)
                         if  UnitExists(_unit) and spell.duration<1 or not hasAura(unit.unit,spell.name,"HELPFUL") and (not spell.name=='Power Word:Shield' or not hasAura(unit.unit,'Weakened Soul','HARMFUL')) then 
-                            potential = getPotential(unit.unitHealthMax-unit.unitHealth,spell,potential,saveMana,metrics.average_dtps_party,inCombat)
+                            potential = getPotential(unit.unitHealthMax-unit.unitHealth,spell,potential,saveMana,metrics.average_dtps_party,inCombat,metrics.party_mindtinterval)
                         end
                     end
                 end
+            elseif spell.isBuff then 
+                for _, unit in pairs(metrics.friendly_targets or {}) do
+                    local _unit = unit.unit
+                    local inCombat = UnitAffectingCombat(_unit)
+                    if not inCombat and not hasAura(unit.unit,spell.name,"HELPFUL") then
+                        logger.debug("buff potential")
+                        potential = spell.valueMin or 1
+                    end
+                end
+                
             else
                 for _, unit in pairs(metrics.maxttd_enemies.targets or {}) do
                     local _unit = unit.unit
                     if UnitExists(_unit) and spell.duration<1 or not hasAura(unit.unit,spell.name,'HARMFUL') then
                         local inCombat = UnitAffectingCombat(_unit)
                         if (  metrics.minttd_party.value >= metrics.maxttd_enemies.value ) then
-                            potential = getPotential(unit.unitHealth,spell,potential,saveMana,metrics.average_dtps_party,inCombat)
+                            potential = getPotential(unit.unitHealth,spell,potential,saveMana,metrics.average_dtps_party,inCombat,metrics.party_mindtinterval)
                         else 
                             enemydmgpotsaved = (metrics.maxttd_enemies.value-unit.unitHealth/(metrics.min_dtps_enemies.value+(spell.valueMin/spell.castTime)))*metrics.max_dtps_party.value
-                            potential = getPotential(metrics.max_missing_hp,{name=spell.name,castTime=1,manaCost=1,isAoe=true,valueMin=math.abs(enemydmgpotsaved)},potentia,saveMana,metrics.average_dtps_party,inCombat)
+                            potential = getPotential(metrics.max_missing_hp,{name=spell.name,castTime=1,manaCost=1,isAoe=true,valueMin=math.abs(enemydmgpotsaved)},potentia,saveMana,metrics.average_dtps_party,inCombat,metrics.party_mindtinterval)
                         end
                         
                     end
@@ -266,7 +242,9 @@ function pickBestAction(metrics)
             end
         end
     end
-    
+    if bestAction then
+        logger.info("pickBestAction",bestAction.name,maxPotential)
+    end
     return bestAction
 end
 

@@ -11,6 +11,7 @@ end
 --chronology
 local metricDataWA = metricDataWA or {}
 local metricRatesWA = metricRatesWA or {}
+local metricIntervals = metricIntervals or {}
 function ResetTarget(unit)
     logger.debug("ResetTarget:",unit)
     
@@ -20,6 +21,9 @@ function ResetTarget(unit)
     UpdateRates(unit,'HEALTH',UnitHealth(unit))
 end
 
+function getRawData() 
+    return {metricDataWA=metricDataWA, metricRatesWA=metricRatesWA}
+end
 
 function UpdateRates(unit, metric, value)
     local guid = unit
@@ -29,11 +33,13 @@ function UpdateRates(unit, metric, value)
     -- Initialize if nil
     if not metricDataWA then metricDataWA = {} end
     if not metricRatesWA then metricRatesWA = {} end
+    if not metricIntervals then metricIntervals = {} end
     
     -- Check GUID
     if not guid then return end
     if not metricDataWA[guid] then metricDataWA[guid] = {} end
     if not metricRatesWA[guid] then metricRatesWA[guid] = {} end
+    if not metricIntervals[guid] then metricIntervals[guid] = {} end
     
     -- Check metric
     if not metricDataWA[guid][metric] then
@@ -45,12 +51,15 @@ function UpdateRates(unit, metric, value)
     logger.debug("senseValue:", unit,metric, value,'time:'..timestamp)
     -- Remove samples older than 3 seconds
     local currentTime = timestamp
-    if (metricRatesWA[guid][metric]~=0)then
-        metricDataWA[guid][metric] = metricDataWA[guid][metric] filter(metricDataWA[guid][metric], function(sample)
+    if (metricRatesWA[guid][metric] and metricRatesWA[guid][metric]>=0)then
+        metricDataWA[guid][metric] = filter(metricDataWA[guid][metric], function(sample)
                 return currentTime - sample.timestamp <= 5
         end)
     end
     
+    local lastValue = nil
+    local lastTimestamp = nil
+    local minInterval = math.huge
     -- Calculate average rate (per second) considering positive and negative deltas
     local sum = 0
     local totalTime = 0
@@ -59,10 +68,16 @@ function UpdateRates(unit, metric, value)
         local deltaTime = metricDataWA[guid][metric][i].timestamp - metricDataWA[guid][metric][i-1].timestamp
         sum = sum + deltaValue
         totalTime = totalTime + deltaTime
+        
+        if deltaValue < 0 then
+            minInterval = math.min(minInterval, deltaTime)
+        end
     end
     
-    local avgRate = (totalTime > 0) and (sum / totalTime) or 0
     
+    
+    local avgRate = (totalTime > 0) and (sum / totalTime) or 0
+    metricIntervals[guid][metric] = minInterval
     metricRatesWA[guid][metric] = avgRate
     logger.debug("senseRate:", unit, metric, metricRatesWA[guid][metric])
 end
@@ -72,7 +87,10 @@ local function isHealer(unitID)
     local _, unitClass = UnitClass(unitID)
     return unitClass == "PRIEST" or unitClass == "DRUID" or unitClass == "PALADIN" or unitClass == "SHAMAN"
 end
-
+local _metrics = {}
+function getMetrics()
+    return _metrics
+end
 function generateMetrics()
     local metrics = {
         minttd_party = {value = math.huge, targets = {}},
@@ -84,7 +102,9 @@ function generateMetrics()
         average_dtps_party = 0,
         max_missing_hp = 0,
         party_num_hp50_dtpsgt0 = 0,
-        enemy_num_hp50_dtpsgt0 = 0
+        enemy_num_hp50_dtpsgt0 = 0,
+        friendly_targets = {},
+        party_mindtinterval=math.huge
     }
     
     local totalDtpsParty = 0
@@ -99,11 +119,11 @@ function generateMetrics()
         local ttd = (rate ~= 0) and (unitHealth / -rate) or math.huge
         local unit = {unit=_unit,unitHealth=unitHealth,unitHealthMax=unitHealthMax}
         if UnitIsFriend("player", _unit) then
+            table.insert(metrics.friendly_targets,unit)
             if max_missing_hp>metrics.max_missing_hp then 
                 --todo check dead
                 metrics.max_missing_hp = max_missing_hp
             end
-            logger.debug('preconsidering unit:',_unit,rate)
             if rate <= 0 then
                 if ttd < metrics.minttd_party.value then
                     metrics.minttd_party.value = ttd
@@ -121,6 +141,10 @@ function generateMetrics()
                 totalDtpsParty = totalDtpsParty + dtps
                 partyCount = partyCount + 1
             end
+            local dtinterval = metricIntervals[_unit]["HEALTH"]
+            if dtinterval and dtinterval<metrics.party_mindtinterval then
+                metrics.party_mindtinterval = dtinterval
+            end
             
             if unitHealth / unitHealthMax <= 0.5 and rate > 0 then
                 metrics.party_num_hp50_dtpsgt0 = metrics.party_num_hp50_dtpsgt0 + 1
@@ -136,7 +160,6 @@ function generateMetrics()
             end
         else
             
-            logger.debug('preconsidering unit:',unit,rate)
             if rate <= 0 then
                 local dtps = -rate
                 if dtps < metrics.min_dtps_enemies.value then
@@ -170,7 +193,7 @@ function generateMetrics()
     else
         metrics.ttd_mana_self = math.huge
     end
-    
+    _metrics = metrics
     return metrics
     
 end
