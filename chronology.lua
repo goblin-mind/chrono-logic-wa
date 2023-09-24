@@ -19,6 +19,7 @@ function ResetTarget(unit)
     metricRatesWA[unit] = {}
     
     UpdateRates(unit,'HEALTH',UnitHealth(unit))
+    C_Timer.After(1,function() UpdateRates(unit,'HEALTH',UnitHealth(unit)) end)
 end
 
 function getRawData() 
