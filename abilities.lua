@@ -223,7 +223,7 @@ function pickBestAction(metrics)
                             local leechTarget =  metrics.maxttd_enemies.targets[1]
                             local dmgPotential = leechTarget and leechTarget.unitHealth or 0
                             if leechTarget and dmgPotential then
-                            logger.warn("leech check",spell.name or 'unknown_spell',leechTarget.unit or 'uknown target',dmgPotential or 'unknown_dmg')
+                                logger.warn("leech check",spell.name or 'unknown_spell',leechTarget.unit or 'uknown target',dmgPotential or 'unknown_dmg')
                             end
                             if (dmgPotential and dmgPotential>0 and not hasAura(leechTarget.unit,spell.name,'HARMFUL')) then
                                 potential = getPotential(dmgPotential,table_merge(table_merge({},spell),{isHot=true,valueMin=dmgPotential}),potential,saveMana,metrics.average_dtps_party,inCombat,metrics.party_mindtinterval) 
