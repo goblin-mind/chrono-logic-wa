@@ -122,6 +122,7 @@ end
 local function minBy(targets, metric)
     return reduce(map(targets, metric), math.min, math.huge)
 end
+
 function generateMetrics()
     local metrics = {
         targets = {},
@@ -162,10 +163,12 @@ function generateMetrics()
         return not x.isFriend
     end)
 
-    metrics.maxttd_enemies = maxBy(enemyTargets, 'ttd')
-    metrics.minttd_party = minBy(friendlyTargets, 'ttd')
-    metrics.ttd_mana_self = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].manaTTD
-    metrics.self_dtinterval = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].dti
+    metrics.maxttd_enemies = maxBy(enemyTargets, 'ttd') or metrics.maxttd_enemies
+    metrics.minttd_party = minBy(friendlyTargets, 'ttd') or metrics.minttd_party
+    metrics.ttd_mana_self = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].manaTTD or
+                                metrics.ttd_mana_self
+    metrics.self_dtinterval = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].dti or
+                                  metrics.self_dtinterval
 
     _metrics = metrics
     return metrics

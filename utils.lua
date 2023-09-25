@@ -14,13 +14,14 @@ local function logMessage(level, ...)
         end), " "))
     end
 end
+
 function map(t, f_or_key)
     local new_t = {}
-    for k, v in pairs(t) do
+    for _, v in pairs(t) do
         if type(f_or_key) == "function" then
-            new_t[k] = f_or_key(v, k)
+            table.insert(new_t, f_or_key(v))
         else
-            new_t[k] = v[f_or_key]
+            table.insert(new_t, v[f_or_key])
         end
     end
     return new_t
@@ -105,18 +106,49 @@ function flattenTable(tbl, parentKey, flatTbl)
     return flatTbl
 end
 function tableToAlignedString(tbl, query)
+    local function roundF(num)
+        return string.format("%.0f", num)
+    end
+    query = query or {}
     local colWidths = {}
     local str = ""
-    local orderBy = query.orderBy or nil
-    local columns = query.columns or nil
+    local orderBy = query.orderBy or next(tbl[1] or {})
+    local columns = query.columns or {}
 
+    -- Default to all columns if none specified
+    if #columns == 0 then
+        for _, spell in pairs(tbl) do
+            for k, _ in pairs(spell) do
+                table.insert(columns, k)
+                colWidths[k] = #k
+            end
+        end
+    end
+    for _, item in pairs(tbl) do
+        local value = item[orderBy]
+        if value == nil then
+            item[orderBy] = 0  -- Default value for nil
+        elseif value ~= value then  -- Check for NaN or -NaN
+            item[orderBy] = 0  -- Default value for NaN
+        elseif tostring(value)=='nan' then  -- Check for NaN or -NaN
+            item[orderBy] = 0  -- Default value for NaN
+        end
+    end
     local function sortTable(t, orderKey)
         local sortedTbl = {}
         for k in pairs(t) do
             table.insert(sortedTbl, k)
         end
         table.sort(sortedTbl, function(a, b)
-            return (t[a][orderKey] or 0) > (t[b][orderKey] or 0)
+            
+            local aValue = t[a][orderKey]
+            local bValue = t[b][orderKey]
+            
+            aValue = aValue or 0
+            bValue = bValue or 0
+            if aValue ~= aValue then aValue = 0 end  -- Check for NaN
+            if bValue ~= bValue then bValue = 0 end  -- Check for NaN
+            return aValue > bValue
         end)
         return sortedTbl
     end
@@ -154,7 +186,7 @@ function tableToAlignedString(tbl, query)
     for _, spellId in ipairs(sortedKeys or tbl) do
         local spell = tbl[spellId]
         for _, col in ipairs(columns or colWidths) do
-            local val = tostring(spell[col] or "")
+            local val = type(spell[col]) == "number" and roundF(spell[col]) or tostring(spell[col] or "")
             str = str .. val .. string.rep(" ", colWidths[col] - #val) .. " | "
         end
         str = str .. "\n"
@@ -194,7 +226,7 @@ function isSpellUsable(spellId)
     if not usable then
         return false
     end
-    -- print(usable)
+    
     local start, duration, enabled = GetSpellCooldown(spellId)
     if not start then
         return true

@@ -64,7 +64,7 @@ local function GetSpellValueFromTooltip(spellID)
 
     local isDot = not isHeal and duration > 0 and not isPct
     local isHot = not isAbsorb and isHeal and duration > 0 and not isPct
-    local isLeech = isPct
+    local isLeech = isHeal and isPct
     -- type
     local effectType = "DIRECT"
     if isAbsorb then
