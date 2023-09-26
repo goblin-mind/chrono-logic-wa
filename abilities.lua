@@ -19,7 +19,7 @@ local function GetSpellValueFromTooltip(spellID)
         return false
     end
 
-    local spellValueMax, isHeal, isAoe, duration, isAbsorb, isBuff, isPct
+    local spellValueMax, isHeal, isAoe, duration, isAbsorb, isBuff, isPct, targetable
     local attributeBuffs = {"stamina", "intellect", "strength", "agility", "spirit", "armor", "resistance",
                             "damage caused"} -- Add more attributes as needed
 
@@ -34,7 +34,7 @@ local function GetSpellValueFromTooltip(spellID)
         addMatchedValue(text, "by%s+(%d+)")
         addMatchedValue(text, "(%d+)%%[%a%s]*damage")
 
-        duration = string.match(text, "over%s+(%d+)%s+sec") or string.match(text, "for%s+(%d+)%s+sec")
+        duration = string.match(text, "over%s+(%d+)%s+sec") or string.match(text, "for%s+(%d+)%s+sec") or string.match(text, "lasts%s+(%d+)%s+sec")
         if not duration then
             duration = string.match(text, "(%d+)%s+min")
             duration = tonumber(duration or 0) * 60
@@ -45,6 +45,7 @@ local function GetSpellValueFromTooltip(spellID)
         isPct = isPct or string.find(text, "%%")
         isAoe = isAoe or string.match(text, "allies|enemies|members") and true
 
+        targetable = targetable or (string.find(text, "member[%a]*") or string.find(text, "target[%a]*")) and true
         isAbsorb = isAbsorb or string.find(text, "absorb[%a]*") and true
         isHeal = isHeal or (string.find(text, "restor[%a]*") or string.find(text, "heal[%a]*") or isAbsorb) and true
 
@@ -52,7 +53,6 @@ local function GetSpellValueFromTooltip(spellID)
         for _, attr in ipairs(attributeBuffs) do
             isBuff = isBuff or string.find(text, attr) and true
             if isBuff then
-                buffAmount = string.match(text, "(%d+)%s+to%s+(%d+)") -- Add more patterns as needed
                 break
             end
         end
@@ -71,11 +71,9 @@ local function GetSpellValueFromTooltip(spellID)
         effectType = "ABSORB"
     elseif isLeech then
         effectType = "LEECH"
-        -- todo find another way to aggregate than faking aoe
-        isAoe = true
     elseif isHot then
         effectType = "HOT"
-    elseif isBuff then -- spell.duration > 60
+    elseif isBuff and duration > 60 then 
         effectType = "BUFF"
     elseif isDot then
         effectType = "DOT"
@@ -91,7 +89,8 @@ local function GetSpellValueFromTooltip(spellID)
         isAoe = isAoe,
         isAbsorb = isAbsorb,
         isPct = isPct,
-        effectType = effectType
+        effectType = effectType,
+        targetable = targetable
     }
 end
 
@@ -119,7 +118,7 @@ function GeneratePlayerSpellList()
             local spellType, _ = GetSpellBookItemInfo(i, "spell")
             local tooltipVals = GetSpellValueFromTooltip(spellId)
             local castTime = math.max(CalculateSpellCastTime(spellId) or 1.5, 1.5)
-
+            local start, cooldown, enabled = GetSpellCooldown(spellId)
             local manaCost = 0;
             local costInfo = GetSpellPowerCost(spellId)
             local icon = GetSpellTexture(spellId)
@@ -140,7 +139,8 @@ function GeneratePlayerSpellList()
                     name = spellName,
                     manaCost = manaCost,
                     castTime = castTime,
-                    id = spellId
+                    id = spellId,
+                    cooldown=cooldown
                 })
 
                 spellList[spellId] = enrichSpell(spell)

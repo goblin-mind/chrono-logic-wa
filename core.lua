@@ -21,7 +21,7 @@ local function getPotential(potential, unit, spell, effectiveCastTime, effective
                 unitSpellPotential = spell.valueMin or 1
             end
         elseif spell.effectType == "HOT" then
-            if unit.isFriend and not hasAura(unit.unit, spell.name, "HELPFUL") then
+            if unit.isFriend and not hasAura(unit.unit, spell.name, "HELPFUL") and (spell.targetable or unit.unit == 'player')then
                 unitSpellPotential = unit.dtps / spell.dps * spell.valueMin
             end
         elseif spell.effectType == "LEECH" then
@@ -122,7 +122,7 @@ function pickBestAction(metrics, survivalFactor)
 
             end)
             
-            if spell.isAoe then
+            if spell.isAoe or spell.effectType == 'LEECH' then
                 bestSpellUnitPotential = table_merge({}, spell, {
                     potential = sum(map(everySpellUnitPotential, 'potential'))
                 })
