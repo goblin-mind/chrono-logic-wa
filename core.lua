@@ -95,9 +95,8 @@ function pickBestAction(metrics, survivalFactor)
                                 (metrics.minttd_party / metrics.maxttd_enemies / survivalFactor)
 
     local everyBestSpellUnitPotential = map(spellList, function(spell)
-        local spellId = spell.id
         local bestSpellUnitPotential = {}
-        if isSpellUsable(spellId) then
+        if isSpellUsable(spell) then
             local potential = 0
             local unitHealth = 0;
 
@@ -141,7 +140,7 @@ function pickBestAction(metrics, survivalFactor)
     _everyBestSpellUnitPotential = everyBestSpellUnitPotential
     local bestBestSpellUnitPotential = findMax(everyBestSpellUnitPotential, 'potential')
     
-    if (bestBestSpellUnitPotential.potential>0) then
+    if (bestBestSpellUnitPotential and bestBestSpellUnitPotential.potential>0) then
         logger.info("bestBestSpellUnitPotential", bestBestSpellUnitPotential)
         return bestBestSpellUnitPotential
     end

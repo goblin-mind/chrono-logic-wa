@@ -218,7 +218,8 @@ function hasAura(unit, aura, atype)
     return name == aura
 end
 
-function isSpellUsable(spellId)
+function isSpellUsable(spell)
+    local spellId = spell.id
     if not spellId then
         return true
     end

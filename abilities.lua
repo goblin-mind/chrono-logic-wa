@@ -1,96 +1,58 @@
 -- learn abilities from spellbook
 local function GetSpellValueFromTooltip(spellID)
-    if not spellID then
-        return {}
-    end
+    if not spellID then return {} end
 
     local tooltip = CreateFrame("GameTooltip", "MyScanningTooltip", nil, "GameTooltipTemplate")
     tooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
     tooltip:SetSpellByID(spellID)
-    -- Initialize spellValueMin to 0
-    local spellValueMin = 0
-    -- Function to add matched value to spellValueMin
-    local function addMatchedValue(text, pattern)
-        local match = string.match(text, pattern)
-        if match then
-            spellValueMin = spellValueMin + tonumber(match)
-            return true
-        end
-        return false
-    end
 
-    local spellValueMax, isHeal, isAoe, duration, isAbsorb, isBuff, isPct, targetable
-    local attributeBuffs = {"stamina", "intellect", "strength", "agility", "spirit", "armor", "resistance",
-                            "damage caused"} -- Add more attributes as needed
+    local matchValues = {}
+    local patterns = {
+        damage = { "(%d+)%s+[%a%s]*damage", "additional (%d+)%s*[%a-]*%s+damage", "by%s+(%d+)", "(%d+)%%[%a%s]*damage"},
+        duration = {"over%s+(%d+)%s+sec", "for%s+(%d+)%s+sec", "lasts%s+(%d+)%s+sec"},
+        durationMins = {"over%s+(%d+)%s+min", "for%s+(%d+)%s+min", "lasts%s+(%d+)%s+min"},
+        aoe = {"allies", "enemies", "members"},
+        targets = {"member[%a]*", "target[%a]*"},
+        heal= {"restor[%a]*", "heal[%a]*"},
+        absorb = { "absorb[%a]*"},
+        buff = {"stamina", "intellect", "strength", "agility", "spirit", "armor", "resistance", "damage caused"},
+        isPct = {"%%"}
+    }
 
     for i = 1, tooltip:NumLines() do
         local line = _G["MyScanningTooltipTextLeft" .. i]
-        local text = line:GetText()
-        text = string.lower(text or '')
-        -- logger.debug(text)
-        local _ = addMatchedValue(text, "(%d+)%s+to%s+%d+%s+[%a%s]*damage") or
-                      addMatchedValue(text, "(%d+)%s+[%a%s]*damage")
-        addMatchedValue(text, "additional (%d+)%s*[%a-]*%s+damage")
-        addMatchedValue(text, "by%s+(%d+)")
-        addMatchedValue(text, "(%d+)%%[%a%s]*damage")
-
-        duration = string.match(text, "over%s+(%d+)%s+sec") or string.match(text, "for%s+(%d+)%s+sec") or string.match(text, "lasts%s+(%d+)%s+sec")
-        if not duration then
-            duration = string.match(text, "(%d+)%s+min")
-            duration = tonumber(duration or 0) * 60
-        else
-            duration = tonumber(duration)
-        end
-        -- qualifiers --todo consider eliminating in favor of types
-        isPct = isPct or string.find(text, "%%")
-        isAoe = isAoe or string.match(text, "allies|enemies|members") and true
-
-        targetable = targetable or (string.find(text, "member[%a]*") or string.find(text, "target[%a]*")) and true
-        isAbsorb = isAbsorb or string.find(text, "absorb[%a]*") and true
-        isHeal = isHeal or (string.find(text, "restor[%a]*") or string.find(text, "heal[%a]*") or isAbsorb) and true
-
-        -- Detecting generic attribute buffs
-        for _, attr in ipairs(attributeBuffs) do
-            isBuff = isBuff or string.find(text, attr) and true
-            if isBuff then
-                break
+        local text = string.lower(line:GetText() or '')
+        
+        for category, patternList in pairs(patterns) do
+            for _, pattern in pairs(patternList) do
+                local match = string.match(text, pattern)
+                if match then
+                    matchValues[category] = matchValues[category] or {}
+                    table.insert(matchValues[category], match)
+                    --break
+                end
             end
         end
-
-        if spellValueMin > 0 then
-            break
-        end
     end
-
+    
+    local spellValueMin = matchValues.damage and sum(map(matchValues.damage,tonumber)) or 0
+    local duration = matchValues.duration and tonumber(matchValues.duration[1]) or matchValues.durationMins and tonumber(matchValues.durationMins[1])*60 or 0
+    local isPct = matchValues.isPct and true or false
+    local isAbsorb = matchValues.absorb and true or false
+    local isHeal = matchValues.heal and true or false
+    local isBuff = matchValues.buff and true or false
     local isDot = not isHeal and duration > 0 and not isPct
     local isHot = not isAbsorb and isHeal and duration > 0 and not isPct
     local isLeech = isHeal and isPct
-    -- type
-    local effectType = "DIRECT"
-    if isAbsorb then
-        effectType = "ABSORB"
-    elseif isLeech then
-        effectType = "LEECH"
-    elseif isHot then
-        effectType = "HOT"
-    elseif isBuff and duration > 60 then 
-        effectType = "BUFF"
-    elseif isDot then
-        effectType = "DOT"
-    elseif isHeal then
-        effectType = "HEAL"
-    end
+    
+    local effectType = isAbsorb and "ABSORB" or isLeech and "LEECH" or isHot and "HOT" or (isBuff and duration > 60) and "BUFF" or isDot and "DOT" or isHeal and "HEAL" or "DIRECT"
 
     return {
-        valueMin = tonumber(spellValueMin),
-        isHeal = isHeal,
-        isBuff = isBuff,
-        duration = tonumber(duration) or 1,
-        isAoe = isAoe,
-        isAbsorb = isAbsorb,
-        isPct = isPct,
+        valueMin = spellValueMin,
+        duration = duration or 1,
+        isAoe = matchValues.aoe and true or false,
         effectType = effectType,
-        targetable = targetable
+        targetable = matchValues.targets and true or false
     }
 end
 
@@ -118,7 +80,7 @@ function GeneratePlayerSpellList()
             local spellType, _ = GetSpellBookItemInfo(i, "spell")
             local tooltipVals = GetSpellValueFromTooltip(spellId)
             local castTime = math.max(CalculateSpellCastTime(spellId) or 1.5, 1.5)
-            local start, cooldown, enabled = GetSpellCooldown(spellId)
+            
             local manaCost = 0;
             local costInfo = GetSpellPowerCost(spellId)
             local icon = GetSpellTexture(spellId)
@@ -132,6 +94,7 @@ function GeneratePlayerSpellList()
             if not spellName then
                 break
             end
+            local start, cooldown, enabled = GetSpellCooldown(spellName,'spell')
             if spellType ~= "FUTURESPELL" and tooltipVals.valueMin > 0 then
                 local spell = table_merge(tooltipVals, {
                     rank = rank,
@@ -162,6 +125,7 @@ function GeneratePlayerSpellList()
         return spellList[a].manaCost < spellList[b].manaCost
 
     end)
+    
 
     -- Assign ranks
     for _, spellId in ipairs(sortedKeys) do
@@ -172,7 +136,7 @@ function GeneratePlayerSpellList()
         counters[spell.name] = counters[spell.name] + 1
         spell.rank = counters[spell.name]
     end
-
+    logger.warn(counters)
     -- Melee
     local minDamage, maxDamage, _, _, _ = UnitDamage("player")
     local mainSpeed, offSpeed = UnitAttackSpeed("player")
