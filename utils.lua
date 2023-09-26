@@ -9,9 +9,11 @@ LogLevel = {
 local function logMessage(level, ...)
 
     if level >= logger.logLevel then
-        print(table.concat(map({...}, function(it)
+        local result = table.concat(map({...}, function(it)
             return type(it) == "table" and stringifyTable(it) or tostring(it)
-        end), " "))
+        end), " ")
+        print(result)
+        return result
     end
 end
 
@@ -30,19 +32,19 @@ end
 logger = {
     logLevel = aura_env.config['loglevel'],
     trace = function(...)
-        logMessage(LogLevel.TRACE, ...)
+        return logMessage(LogLevel.TRACE, ...)
     end,
     debug = function(...)
-        logMessage(LogLevel.DEBUG, ...)
+        return logMessage(LogLevel.DEBUG, ...)
     end,
     info = function(...)
-        logMessage(LogLevel.INFO, ...)
+        return logMessage(LogLevel.INFO, ...)
     end,
     warn = function(...)
-        logMessage(LogLevel.WARN, ...)
+        return logMessage(LogLevel.WARN, ...)
     end,
     error = function(...)
-        logMessage(LogLevel.ERROR, ...)
+        return logMessage(LogLevel.ERROR, ...)
     end
 }
 

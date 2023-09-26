@@ -135,7 +135,9 @@ function generateMetrics()
     local totalDtpsParty = 0
     local partyCount = 0
     for _unit, metricTable in pairs(metricRatesWA or {}) do
-        if UnitExists(_unit) then
+        local exists = UnitExists(_unit)
+        local guid = exists and UnitGUID(_unit) or '0'
+        if exists  then
             local unitHealth = UnitHealth(_unit) or 0
             local unitHealthMax = UnitHealthMax(_unit) or 1
             local unitPower = UnitPower(_unit, 0) or 0
@@ -152,9 +154,10 @@ function generateMetrics()
                 dti = dti,
                 isFriend = UnitIsFriend("player", _unit),
                 inCombat = UnitAffectingCombat(_unit),
-                exists = UnitExists(_unit) 
+                exists = exists,
+                unitName = UnitName(_unit)
             }
-            metrics.targets[UnitGUID(_unit)] = unit
+            metrics.targets[guid] = unit
         end
     end
     local friendlyTargets = filter(metrics.targets, function(x)

@@ -2,7 +2,6 @@
 function()
     --PLAYER_LOGIN, PLAYER_ENTERING_WORLD, ADDON_LOADED
     GeneratePlayerSpellList()
-    
 end
 
 -- Do not remove this comment, it is part of this aura: chronology
@@ -49,6 +48,7 @@ function()
         local icon = bestSpell.texture
         --print("best spell found", stringifyTable(bestSpell),icon )
         aura_env.icon= icon
+        aura_env.targetname = bestSpell.unitName
         aura_env.rank = bestSpell.rank
         return true
     end
