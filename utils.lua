@@ -55,6 +55,7 @@ function sum(tbl)
     end
     return total
 end
+
 function identity(x)
     return x
 end
@@ -107,6 +108,7 @@ function flattenTable(tbl, parentKey, flatTbl)
 
     return flatTbl
 end
+
 function tableToAlignedString(tbl, query)
     local function roundF(num)
         return type(num) == 'number' and string.format("%.1f", num) or tostring(num)
@@ -129,11 +131,11 @@ function tableToAlignedString(tbl, query)
     for _, item in pairs(tbl) do
         local value = item[orderBy]
         if value == nil then
-            item[orderBy] = 0  -- Default value for nil
-        elseif value ~= value then  -- Check for NaN or -NaN
-            item[orderBy] = 0  -- Default value for NaN
-        elseif tostring(value)=='nan' then  -- Check for NaN or -NaN
-            item[orderBy] = 0  -- Default value for NaN
+            item[orderBy] = 0 -- Default value for nil
+        elseif value ~= value then -- Check for NaN or -NaN
+            item[orderBy] = 0 -- Default value for NaN
+        elseif tostring(value) == 'nan' then -- Check for NaN or -NaN
+            item[orderBy] = 0 -- Default value for NaN
         end
     end
     local function sortTable(t, orderKey)
@@ -142,14 +144,18 @@ function tableToAlignedString(tbl, query)
             table.insert(sortedTbl, k)
         end
         table.sort(sortedTbl, function(a, b)
-            
+
             local aValue = t[a][orderKey]
             local bValue = t[b][orderKey]
-            
+
             aValue = aValue or 0
             bValue = bValue or 0
-            if aValue ~= aValue then aValue = 0 end  -- Check for NaN
-            if bValue ~= bValue then bValue = 0 end  -- Check for NaN
+            if aValue ~= aValue then
+                aValue = 0
+            end -- Check for NaN
+            if bValue ~= bValue then
+                bValue = 0
+            end -- Check for NaN
             return aValue > bValue
         end)
         return sortedTbl
@@ -197,8 +203,6 @@ function tableToAlignedString(tbl, query)
     return str
 end
 
-
-
 function table_merge(t1, ...)
     local arg = {...}
     for i, tbl in ipairs(arg) do
@@ -209,37 +213,44 @@ function table_merge(t1, ...)
     return t1
 end
 
-function CalculateSpellCastTime(spellID)
-    local name, rank, icon, castTime, minRange, maxRange, spellId = GetSpellInfo(spellID)
-    if not castTime then
-        return math.huge
-    end
-    return (castTime / 1000)
+function maxVal(targets, metric)
+    return reduce(map(targets, metric), math.max, -math.huge)
 end
 
-function hasAura(unit, aura, atype)
-    local name, _ = AuraUtil.FindAuraByName(aura, unit, atype)
-    return name == aura
+function minVal(targets, metric)
+    return reduce(map(targets, metric), math.min, math.huge)
 end
 
-function isSpellUsable(spell)
-    local spellId = spell.id
-    if type(spellId) ~= 'number' then
-        return true
+function filter(tbl, condition)
+    local out = {}
+    for i, v in ipairs(tbl) do
+        if condition(v) then
+            table.insert(out, v)
+        end
     end
-    local usable, _ = IsUsableSpell(spellId)
-    if not usable then
-        return false
-    end
-    
-    local start, duration, enabled = GetSpellCooldown(spellId)
-    if not start then
-        return true
-    end
-
-    local timeLeft = start + duration - GetTime()
-    local isOnCooldown = (timeLeft > 1.5)
-
-    return not isOnCooldown
+    return out
 end
 
+function findMax(targets, metric)
+    local max_val = -math.huge
+    local max_target = nil
+    local keys = {}
+
+    for k in pairs(targets or {}) do
+        table.insert(keys, k)
+    end
+
+    for _, k in ipairs(keys) do
+        local target = targets[k]
+        local val = target and target[metric] or nil
+
+        if val ~= nil and type(val) == "number" and tostring(val) ~= "nan" and tostring(val) ~= "-nan" then
+            if val > max_val then
+                max_val = val
+                max_target = target
+            end
+        end
+    end
+
+    return max_target
+end

@@ -1,3 +1,8 @@
+local spellList = {}
+
+function GetPlayerSpellList()
+    return spellList
+end
 -- learn abilities from spellbook
 local function GetSpellValueFromTooltip(spellID)
     if not spellID then
@@ -67,10 +72,12 @@ local function GetSpellValueFromTooltip(spellID)
     }
 end
 
-spellList = {}
-
-function GetPlayerSpellList()
-    return spellList
+local function CalculateSpellCastTime(spellID)
+    local name, rank, icon, castTime, minRange, maxRange, spellId = GetSpellInfo(spellID)
+    if not castTime then
+        return math.huge
+    end
+    return (castTime / 1000)
 end
 
 local function enrichSpell(spell)
@@ -252,4 +259,25 @@ function GeneratePlayerSpellList()
         DEFAULT = 1
     })
 
+end
+
+function isSpellUsable(spell)
+    local spellId = spell.id
+    if type(spellId) ~= 'number' then
+        return true
+    end
+    local usable, _ = IsUsableSpell(spellId)
+    if not usable then
+        return false
+    end
+
+    local start, duration, enabled = GetSpellCooldown(spellId)
+    if not start then
+        return true
+    end
+
+    local timeLeft = start + duration - GetTime()
+    local isOnCooldown = (timeLeft > 1.5)
+
+    return not isOnCooldown
 end

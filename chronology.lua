@@ -1,16 +1,8 @@
-local function filter(tbl, condition)
-    local out = {}
-    for i, v in ipairs(tbl) do
-        if condition(v) then
-            table.insert(out, v)
-        end
-    end
-    return out
-end
 -- chronology
 local metricDataWA = metricDataWA or {}
 local metricRatesWA = metricRatesWA or {}
 local metricIntervals = metricIntervals or {}
+
 function ResetTarget(unit)
     logger.debug("ResetTarget:", unit)
 
@@ -26,101 +18,56 @@ end
 function getRawData()
     return {
         metricDataWA = metricDataWA,
-        metricRatesWA = metricRatesWA
+        metricRatesWA = metricRatesWA,
+        metricIntervals = metricIntervals
     }
 end
 
 function UpdateRates(unit, metric, value)
-    local guid = unit
     local timestamp = GetTime()
-    -- Initialization code ...
 
-    -- Initialize if nil
-    if not metricDataWA then
-        metricDataWA = {}
-    end
-    if not metricRatesWA then
-        metricRatesWA = {}
-    end
-    if not metricIntervals then
-        metricIntervals = {}
-    end
+    metricDataWA, metricRatesWA, metricIntervals = metricDataWA or {}, metricRatesWA or {}, metricIntervals or {}
 
-    -- Check GUID
-    if not guid then
-        return
-    end
-    if not metricDataWA[guid] then
-        metricDataWA[guid] = {}
-    end
-    if not metricRatesWA[guid] then
-        metricRatesWA[guid] = {}
-    end
-    if not metricIntervals[guid] then
-        metricIntervals[guid] = {}
-    end
+    local guid = unit or ""
+    metricDataWA[guid], metricRatesWA[guid], metricIntervals[guid] = metricDataWA[guid] or {},
+        metricRatesWA[guid] or {}, metricIntervals[guid] or {}
 
-    -- Check metric
-    if not metricDataWA[guid][metric] then
-        metricDataWA[guid][metric] = {}
-    end
-
+    metricDataWA[guid][metric] = metricDataWA[guid][metric] or {}
     table.insert(metricDataWA[guid][metric], {
         value = value,
         timestamp = timestamp
     })
+
     logger.trace("senseValue:", unit, metric, value, 'time:' .. timestamp)
-    -- Remove samples older than 3 seconds
-    local currentTime = timestamp
-    if (metricRatesWA[guid][metric] and metricRatesWA[guid][metric] >= 0) then
-        metricDataWA[guid][metric] = filter(metricDataWA[guid][metric], function(sample)
-            return currentTime - sample.timestamp <= 2
-        end)
-    end
 
-    local lastValue = nil
-    local lastTimestamp = nil
-    local minInterval = math.huge
-    -- Calculate average rate (per second) considering positive and negative deltas
-    local sum = 0
-    local totalTime = 0
+    metricDataWA[guid][metric] = filter(metricDataWA[guid][metric], function(sample)
+        return timestamp - sample.timestamp <= 2
+    end)
 
-    local criticalSeries = metricDataWA[guid][metric]
-    for i = 2, #criticalSeries do
-        local deltaValue = criticalSeries[i].value - criticalSeries[i - 1].value
-        local deltaTime = criticalSeries[i].timestamp - criticalSeries[i - 1].timestamp
-        sum = sum + deltaValue
-        totalTime = totalTime + deltaTime
-
+    local sum, totalTime, minInterval = 0, 0, math.huge
+    local series = metricDataWA[guid][metric]
+    for i = 2, #series do
+        local deltaValue, deltaTime = series[i].value - series[i - 1].value,
+            series[i].timestamp - series[i - 1].timestamp
+        sum, totalTime = sum + deltaValue, totalTime + deltaTime
         if deltaValue < 0 then
             minInterval = math.min(minInterval, deltaTime)
         end
     end
 
-    local avgRate = (totalTime > 0) and (sum / totalTime) or 0
-    metricIntervals[guid][metric] = minInterval
-    metricRatesWA[guid][metric] = avgRate
+    metricIntervals[guid][metric], metricRatesWA[guid][metric] = minInterval, (totalTime > 0) and (sum / totalTime) or 0
     logger.trace("senseRate:", unit, metric, metricRatesWA[guid][metric])
 end
 
-local function isHealer(unitID)
-    local _, unitClass = UnitClass(unitID)
-    return unitClass == "PRIEST" or unitClass == "DRUID" or unitClass == "PALADIN" or unitClass == "SHAMAN"
-end
+-- aggregated metrics
 local _metrics = {}
-function getMetrics()
-    return _metrics
-end
-local function getTTD(unitHealth, rate)
 
+local function getTTD(unitHealth, rate)
     return unitHealth > 0 and ((rate ~= 0) and (unitHealth / -rate) or math.huge) or 0
 end
-local function maxBy(targets, metric)
-    return reduce(map(targets, metric), math.max, -math.huge)
-end
 
-local function minBy(targets, metric)
-    return reduce(map(targets, metric), math.min, math.huge)
+function getMetrics()
+    return _metrics
 end
 
 function generateMetrics()
@@ -137,7 +84,7 @@ function generateMetrics()
     for _unit, metricTable in pairs(metricRatesWA or {}) do
         local exists = UnitExists(_unit)
         local guid = exists and UnitGUID(_unit) or '0'
-        if exists  then
+        if exists then
             local unitHealth = UnitHealth(_unit) or 0
             local unitHealthMax = UnitHealthMax(_unit) or 1
             local unitPower = UnitPower(_unit, 0) or 0
@@ -167,8 +114,8 @@ function generateMetrics()
         return not x.isFriend
     end)
 
-    metrics.maxttd_enemies = maxBy(enemyTargets, 'ttd') or metrics.maxttd_enemies
-    metrics.minttd_party = minBy(friendlyTargets, 'ttd') or metrics.minttd_party
+    metrics.maxttd_enemies = maxVal(enemyTargets, 'ttd') or metrics.maxttd_enemies
+    metrics.minttd_party = minVal(friendlyTargets, 'ttd') or metrics.minttd_party
     metrics.ttd_mana_self = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].manaTTD or
                                 metrics.ttd_mana_self
     metrics.self_dtinterval = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].dti or

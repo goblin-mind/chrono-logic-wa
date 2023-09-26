@@ -8,6 +8,11 @@ local function getSideBenefitPotential(unit, spell, targets)
     return ttdreduction * ttdtps
 end
 
+local function hasAura(unit, aura, atype)
+    local name, _ = AuraUtil.FindAuraByName(aura, unit, atype)
+    return name == aura
+end
+
 local function getPotential(potential, unit, spell, effectiveCastTime, effectiveManaCost, targets)
     local unitSpellPotential = 0
     if UnitExists(unit.unit) then
@@ -63,32 +68,6 @@ local _everyBestSpellUnitPotential = {}
 
 function GetEveryBestSpellUnitPotential()
     return _everyBestSpellUnitPotential
-end
-
-local function findMax(targets, metric)
-    local max_val = -math.huge
-    local max_target = nil
-    local keys = {}
-
-    for k in pairs(targets or {}) do
-        table.insert(keys, k)
-    end
-
-    for _, k in ipairs(keys) do
-        local target = targets[k]
-        local val = target and target[metric] or nil
-
-        logger.info('findMAx', target.unit, val, target.name)
-
-        if val ~= nil and type(val) == "number" and tostring(val) ~= "nan" and tostring(val) ~= "-nan" then
-            if val > max_val then
-                max_val = val
-                max_target = target
-            end
-        end
-    end
-
-    return max_target
 end
 
 function pickBestAction(metrics, survivalFactor)
