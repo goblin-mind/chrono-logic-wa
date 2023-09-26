@@ -1,8 +1,6 @@
--- Do not remove this comment, it is part of this aura: utils
-
-
 -- Do not remove this comment, it is part of this aura: abilities
 function()
+    --PLAYER_LOGIN, PLAYER_ENTERING_WORLD, ADDON_LOADED
     GeneratePlayerSpellList()
     
 end
@@ -11,6 +9,7 @@ end
 -- WeakAura Custom Trigger
 
 function(event, unit, powerType)
+    --UNIT_HEALTH,UNIT_POWER_UPDATE,UNIT_TARGET
     if event == "UNIT_HEALTH" then
         if unit then
             UpdateRates(unit, "HEALTH", UnitHealth(unit))
@@ -36,16 +35,19 @@ end
 
 -- Do not remove this comment, it is part of this aura: metrics
 function()
-    return true
+    --UNIT_HEALTH,UNIT_POWER_UPDATE,UNIT_TARGET
+    return generateMetrics() and true
 end
 
 -- Do not remove this comment, it is part of this aura: action
 function()
-    local  bestSpell = pickBestAction(generateMetrics()) 
+    --UNIT_COMBAT,SPELL_UPDATE_USABLE,PLAYER_REGEN_ENABLED,UNIT_TARGET
+    local  bestSpell = pickBestAction(getMetrics(),aura_env.config['survivalFactor']) 
     
     
     if bestSpell then
         local icon = bestSpell.texture
+        --print("best spell found", stringifyTable(bestSpell),icon )
         aura_env.icon= icon
         aura_env.rank = bestSpell.rank
         return true

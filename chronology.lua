@@ -151,7 +151,8 @@ function generateMetrics()
                 dtps = -hrate,
                 dti = dti,
                 isFriend = UnitIsFriend("player", _unit),
-                inCombat = UnitAffectingCombat(_unit)
+                inCombat = UnitAffectingCombat(_unit),
+                exists = UnitExists(_unit) 
             }
             metrics.targets[UnitGUID(_unit)] = unit
         end

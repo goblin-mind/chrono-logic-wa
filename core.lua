@@ -17,11 +17,13 @@ local function getPotential(potential, unit, spell, effectiveCastTime, effective
                 unitSpellPotential = spell.valueMin * (effectiveCastTime / unit.ttd)
             end
         elseif spell.effectType == "BUFF" then
-            if unit.isFriend and not unit.inCombat and not hasAura(unit.unit, spell.name, "HELPFUL") then
+            if unit.isFriend and not unit.inCombat and not hasAura(unit.unit, spell.name, "HELPFUL") and
+                (spell.targetable or unit.unit == 'player') then
                 unitSpellPotential = spell.valueMin or 1
             end
         elseif spell.effectType == "HOT" then
-            if unit.isFriend and not hasAura(unit.unit, spell.name, "HELPFUL") and (spell.targetable or unit.unit == 'player')then
+            if unit.isFriend and not hasAura(unit.unit, spell.name, "HELPFUL") and
+                (spell.targetable or unit.unit == 'player') then
                 unitSpellPotential = unit.dtps / spell.dps * spell.valueMin
             end
         elseif spell.effectType == "LEECH" then
@@ -33,12 +35,12 @@ local function getPotential(potential, unit, spell, effectiveCastTime, effective
             if unit.isFriend then
                 unitSpellPotential = math.min(unit.unitHealthMax - unit.unitHealth, spell.valueMin)
             end
-        elseif spell.effectType == "DOT" or spell.effectType == "AUTO"   then
+        elseif spell.effectType == "DOT" or spell.effectType == "AUTO" then
             if not unit.isFriend and not hasAura(unit.unit, spell.name, 'HARMFUL') then
                 unitSpellPotential = math.min(spell.dps * unit.ttd, spell.valueMin)
                 unitSpellPotential = math.min(unit.unitHealth, unitSpellPotential)
             end
-        else
+        elseif spell.effectType == "DIRECT" then
             if not unit.isFriend then
                 unitSpellPotential = math.min(unit.unitHealth, spell.valueMin)
                 -- additional benefit
@@ -48,6 +50,11 @@ local function getPotential(potential, unit, spell, effectiveCastTime, effective
         end
     end
 
+    -- cooldown bigger than target's ttd -> reconsider potential based on confidence
+    if spell.cooldown > unit.ttd then
+        logger.warn("adjusting potential for high cooldown spell", spell.name)
+        unitSpellPotential = 0
+    end
     unitSpellPotential = unitSpellPotential / effectiveCastTime / effectiveManaCost
     return unitSpellPotential
 end
@@ -103,10 +110,10 @@ function pickBestAction(metrics, survivalFactor)
             local everySpellUnitPotential = map(metrics.targets, function(unit)
 
                 local effectiveCastTime = (spell.castTime or 1)
-                local inCombat = UnitAffectingCombat(unit.unit)
+                local inCombat = unit.inCombat
                 if spell.castTime > 0 then
                     effectiveCastTime = effectiveCastTime + effectiveCastTime / metrics.self_dtinterval * 0.5
-                    --bonus value for initiating with long cast
+                    -- bonus value for initiating with long cast
                     effectiveCastTime = (inCombat and effectiveCastTime or (1 / spell.castTime))
                 end
                 local effectiveManaCost = (saveMana and (spell.manaCost or 1) or 1)
@@ -120,7 +127,7 @@ function pickBestAction(metrics, survivalFactor)
                 return res
 
             end)
-            
+
             if spell.isAoe or spell.effectType == 'LEECH' then
                 bestSpellUnitPotential = table_merge({}, spell, {
                     potential = sum(map(everySpellUnitPotential, 'potential'))
@@ -131,7 +138,7 @@ function pickBestAction(metrics, survivalFactor)
         else
             bestSpellUnitPotential = table_merge({}, spell, {
                 potential = 0
-            }) 
+            })
 
         end
         logger.debug('BestUnitSpellPotential:', bestSpellUnitPotential)
@@ -139,8 +146,8 @@ function pickBestAction(metrics, survivalFactor)
     end)
     _everyBestSpellUnitPotential = everyBestSpellUnitPotential
     local bestBestSpellUnitPotential = findMax(everyBestSpellUnitPotential, 'potential')
-    
-    if (bestBestSpellUnitPotential and bestBestSpellUnitPotential.potential>0) then
+
+    if (bestBestSpellUnitPotential and bestBestSpellUnitPotential.potential > 0) then
         logger.info("bestBestSpellUnitPotential", bestBestSpellUnitPotential)
         return bestBestSpellUnitPotential
     end

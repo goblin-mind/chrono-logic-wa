@@ -1,6 +1,8 @@
 -- learn abilities from spellbook
 local function GetSpellValueFromTooltip(spellID)
-    if not spellID then return {} end
+    if not spellID then
+        return {}
+    end
 
     local tooltip = CreateFrame("GameTooltip", "MyScanningTooltip", nil, "GameTooltipTemplate")
     tooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
@@ -8,35 +10,40 @@ local function GetSpellValueFromTooltip(spellID)
 
     local matchValues = {}
     local patterns = {
-        damage = { "(%d+)%s+[%a%s]*damage", "additional (%d+)%s*[%a-]*%s+damage", "by%s+(%d+)", "(%d+)%%[%a%s]*damage"},
+        damage = {"heal[%a%s]*for%s(%d+)", "(%d+)%s+[%a%s]*damage", "additional (%d+)%s*[%a-]*%s+damage", "by%s+(%d+)",
+                  "(%d+)%%[%a%s]*damage"},
+        -- healing = {"heal[%a%s]*for%s(%d+)"},
         duration = {"over%s+(%d+)%s+sec", "for%s+(%d+)%s+sec", "lasts%s+(%d+)%s+sec"},
         durationMins = {"over%s+(%d+)%s+min", "for%s+(%d+)%s+min", "lasts%s+(%d+)%s+min"},
         aoe = {"allies", "enemies", "members"},
         targets = {"member[%a]*", "target[%a]*"},
-        heal= {"restor[%a]*", "heal[%a]*"},
-        absorb = { "absorb[%a]*"},
+        heal = {"restor[%a]*", "heal[%a]*"},
+        absorb = {"absorb[%a]*"},
         buff = {"stamina", "intellect", "strength", "agility", "spirit", "armor", "resistance", "damage caused"},
-        isPct = {"%%"}
+        isPct = {"%%"},
+        drain = {"drain[%a]*"},
+        control = {"control[%a]*"}
     }
 
     for i = 1, tooltip:NumLines() do
         local line = _G["MyScanningTooltipTextLeft" .. i]
         local text = string.lower(line:GetText() or '')
-        
+
         for category, patternList in pairs(patterns) do
             for _, pattern in pairs(patternList) do
                 local match = string.match(text, pattern)
                 if match then
                     matchValues[category] = matchValues[category] or {}
                     table.insert(matchValues[category], match)
-                    --break
+                    -- break
                 end
             end
         end
     end
-    
-    local spellValueMin = matchValues.damage and sum(map(matchValues.damage,tonumber)) or 0
-    local duration = matchValues.duration and tonumber(matchValues.duration[1]) or matchValues.durationMins and tonumber(matchValues.durationMins[1])*60 or 0
+
+    local spellValueMin = matchValues.damage and sum(map(matchValues.damage, tonumber)) or 0
+    local duration = matchValues.duration and tonumber(matchValues.duration[1]) or matchValues.durationMins and
+                         tonumber(matchValues.durationMins[1]) * 60 or 0
     local isPct = matchValues.isPct and true or false
     local isAbsorb = matchValues.absorb and true or false
     local isHeal = matchValues.heal and true or false
@@ -44,8 +51,12 @@ local function GetSpellValueFromTooltip(spellID)
     local isDot = not isHeal and duration > 0 and not isPct
     local isHot = not isAbsorb and isHeal and duration > 0 and not isPct
     local isLeech = isHeal and isPct
-    
-    local effectType = isAbsorb and "ABSORB" or isLeech and "LEECH" or isHot and "HOT" or (isBuff and duration > 60) and "BUFF" or isDot and "DOT" or isHeal and "HEAL" or "DIRECT"
+    local isDrain = matchValues.drain and true or false
+    local isControl = matchValues.control and true or false
+
+    local effectType = isAbsorb and "ABSORB" or isLeech and "LEECH" or isHot and "HOT" or (isBuff and duration > 60) and
+                           "BUFF" or isDot and "DOT" or isHeal and "HEAL" or isDrain and "DRAIN" or isControl and
+                           "CONTROL" or "DIRECT"
 
     return {
         valueMin = spellValueMin,
@@ -70,6 +81,41 @@ local function enrichSpell(spell)
 
 end
 
+local function filterRanksByEffectType(spellList, rankMap)
+    local filteredList = {}
+    local rankTracker = {}
+
+    -- Iterate through spellList and track ranks for each spell name
+    for spellId, spell in pairs(spellList) do
+        local effect = spell.effectType
+        local numRanks = rankMap[effect] or rankMap["DEFAULT"]
+
+        if not rankTracker[spell.name] then
+            rankTracker[spell.name] = {}
+        end
+        table.insert(rankTracker[spell.name], spell)
+    end
+
+    -- Sort each tracked spell's rank in descending order
+    for spellName, spells in pairs(rankTracker) do
+        table.sort(spells, function(a, b)
+            return a.rank > b.rank
+        end)
+    end
+
+    -- Add top ranks to the filtered list
+    for spellName, spells in pairs(rankTracker) do
+        local effect = spells[1].effectType
+        local numRanks = rankMap[effect] or rankMap["DEFAULT"]
+
+        for i = 1, math.min(#spells, numRanks) do
+            filteredList[spells[i].id] = spells[i]
+        end
+    end
+
+    return filteredList
+end
+
 function GeneratePlayerSpellList()
     -- Spells
     local i = 1
@@ -80,7 +126,7 @@ function GeneratePlayerSpellList()
             local spellType, _ = GetSpellBookItemInfo(i, "spell")
             local tooltipVals = GetSpellValueFromTooltip(spellId)
             local castTime = math.max(CalculateSpellCastTime(spellId) or 1.5, 1.5)
-            
+
             local manaCost = 0;
             local costInfo = GetSpellPowerCost(spellId)
             local icon = GetSpellTexture(spellId)
@@ -94,7 +140,8 @@ function GeneratePlayerSpellList()
             if not spellName then
                 break
             end
-            local start, cooldown, enabled = GetSpellCooldown(spellName,'spell')
+            local cooldown = GetSpellBaseCooldown(spellId)
+            cooldown = cooldown and cooldown / 1000 or 0
             if spellType ~= "FUTURESPELL" and tooltipVals.valueMin > 0 then
                 local spell = table_merge(tooltipVals, {
                     rank = rank,
@@ -103,7 +150,7 @@ function GeneratePlayerSpellList()
                     manaCost = manaCost,
                     castTime = castTime,
                     id = spellId,
-                    cooldown=cooldown
+                    cooldown = cooldown
                 })
 
                 spellList[spellId] = enrichSpell(spell)
@@ -125,7 +172,6 @@ function GeneratePlayerSpellList()
         return spellList[a].manaCost < spellList[b].manaCost
 
     end)
-    
 
     -- Assign ranks
     for _, spellId in ipairs(sortedKeys) do
@@ -148,6 +194,7 @@ function GeneratePlayerSpellList()
         valueMin = minDamage,
         valueMax = maxDamage,
         castTime = mainSpeed,
+        cooldown = 0,
         duration = 1,
         texture = 133479,
         id = 'm1'
@@ -164,6 +211,8 @@ function GeneratePlayerSpellList()
             valueMin = minWandDamage,
             valueMax = maxWandDamage,
             castTime = speed,
+            cooldown = 0,
+            rank = 1,
             duration = 1,
             texture = 135149,
             id = 'r1'
@@ -187,6 +236,7 @@ function GeneratePlayerSpellList()
                         name = itemName,
                         valueMin = valueMin,
                         castTime = 1.5,
+                        rank = 1,
                         manaCost = 1,
                         duration = duration,
                         isHeal = isHeal,
@@ -197,4 +247,9 @@ function GeneratePlayerSpellList()
             end
         end
     end
+    spellList = filterRanksByEffectType(spellList, {
+        DIRECT = 2,
+        DEFAULT = 1
+    })
+
 end

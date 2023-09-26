@@ -107,7 +107,7 @@ function flattenTable(tbl, parentKey, flatTbl)
 end
 function tableToAlignedString(tbl, query)
     local function roundF(num)
-        return string.format("%.0f", num)
+        return type(num) == 'number' and string.format("%.1f", num) or tostring(num)
     end
     query = query or {}
     local colWidths = {}
@@ -170,7 +170,7 @@ function tableToAlignedString(tbl, query)
     for spellId, spell in pairs(tbl) do
         for k, v in pairs(spell) do
             if colWidths[k] then
-                colWidths[k] = math.max(colWidths[k], #tostring(v))
+                colWidths[k] = math.max(colWidths[k], type(v) == "number" and #roundF(v) or #tostring(v))
             end
         end
     end
@@ -195,13 +195,7 @@ function tableToAlignedString(tbl, query)
     return str
 end
 
-function CalculateSpellCastTime(spellID)
-    local name, rank, icon, castTime, minRange, maxRange, spellId = GetSpellInfo(spellID)
-    if not castTime then
-        return math.huge
-    end
-    return (castTime / 1000)
-end
+
 
 function table_merge(t1, ...)
     local arg = {...}
@@ -213,6 +207,14 @@ function table_merge(t1, ...)
     return t1
 end
 
+function CalculateSpellCastTime(spellID)
+    local name, rank, icon, castTime, minRange, maxRange, spellId = GetSpellInfo(spellID)
+    if not castTime then
+        return math.huge
+    end
+    return (castTime / 1000)
+end
+
 function hasAura(unit, aura, atype)
     local name, _ = AuraUtil.FindAuraByName(aura, unit, atype)
     return name == aura
@@ -220,7 +222,7 @@ end
 
 function isSpellUsable(spell)
     local spellId = spell.id
-    if not spellId then
+    if type(spellId) ~= 'number' then
         return true
     end
     local usable, _ = IsUsableSpell(spellId)
