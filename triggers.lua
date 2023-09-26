@@ -6,7 +6,6 @@ end
 
 -- Do not remove this comment, it is part of this aura: chronology
 -- WeakAura Custom Trigger
-
 function(event, unit, powerType)
     --UNIT_HEALTH,UNIT_POWER_UPDATE,UNIT_TARGET
     if event == "UNIT_HEALTH" then
@@ -55,4 +54,3 @@ function()
     return false
     
 end
-

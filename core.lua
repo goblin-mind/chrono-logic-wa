@@ -1,10 +1,10 @@
 local function getSideBenefitPotential(unit, spell, targets)
     local ttdtps = (UnitGUID(unit.unit .. 'target') and targets[UnitGUID(unit.unit .. 'target')] and
-                       targets[UnitGUID(unit.unit .. 'target')].dtps or 1)
-
+        targets[UnitGUID(unit.unit .. 'target')].dtps or 1)
+    
     local ttdreduction = unit.ttd < math.huge and
-                             math.abs(unit.ttd - unit.unitHealth / (unit.dtps + (spell.valueMin / spell.castTime))) or 0
-
+    math.abs(unit.ttd - unit.unitHealth / (unit.dtps + (spell.valueMin / spell.castTime))) or 0
+    
     return ttdreduction * ttdtps
 end
 
@@ -18,17 +18,17 @@ local function getPotential(potential, unit, spell, effectiveCastTime, effective
     if UnitExists(unit.unit) then
         if spell.effectType == "ABSORB" then
             if unit.isFriend and not hasAura(unit.unit, spell.name, "HELPFUL") and
-                (not spell.name == 'Power Word:Shield' or not hasAura(unit.unit, 'Weakened Soul', 'HARMFUL')) then
+            (not spell.name == 'Power Word:Shield' or not hasAura(unit.unit, 'Weakened Soul', 'HARMFUL')) then
                 unitSpellPotential = spell.valueMin * (effectiveCastTime / unit.ttd)
             end
         elseif spell.effectType == "BUFF" then
             if unit.isFriend and not unit.inCombat and not hasAura(unit.unit, spell.name, "HELPFUL") and
-                (spell.targetable or unit.unit == 'player') then
+            (spell.targetable or unit.unit == 'player') then
                 unitSpellPotential = spell.valueMin or 1
             end
         elseif spell.effectType == "HOT" then
             if unit.isFriend and not hasAura(unit.unit, spell.name, "HELPFUL") and
-                (spell.targetable or unit.unit == 'player') then
+            (spell.targetable or unit.unit == 'player') then
                 unitSpellPotential = unit.dtps / spell.dps * spell.valueMin
             end
         elseif spell.effectType == "LEECH" then
@@ -50,11 +50,11 @@ local function getPotential(potential, unit, spell, effectiveCastTime, effective
                 unitSpellPotential = math.min(unit.unitHealth, spell.valueMin)
                 -- additional benefit
                 unitSpellPotential = unitSpellPotential + unit.dtps / spell.dps *
-                                         getSideBenefitPotential(unit, spell, targets)
+                getSideBenefitPotential(unit, spell, targets)
             end
         end
     end
-
+    
     -- cooldown bigger than target's ttd -> reconsider potential based on confidence
     if spell.cooldown > unit.ttd then
         logger.warn("adjusting potential for high cooldown spell", spell.name)
@@ -74,58 +74,58 @@ function pickBestAction(metrics, survivalFactor)
     if not metrics then
         return nil
     end
-
+    
     local maxPotential = 0
     local saveMana = metrics.maxttd_enemies > metrics.ttd_mana_self
     local pumpToHealRatio = metrics.minttd_party >= math.huge and 1 or
-                                (metrics.minttd_party / metrics.maxttd_enemies / survivalFactor)
-
+    (metrics.minttd_party / metrics.maxttd_enemies / survivalFactor)
+    
     local everyBestSpellUnitPotential = map(spellList, function(spell)
-        local bestSpellUnitPotential = {}
-        if isSpellUsable(spell) then
-            local potential = 0
-            local unitHealth = 0;
-
-            local everySpellUnitPotential = map(metrics.targets, function(unit)
-
-                local effectiveCastTime = (spell.castTime or 1)
-                local inCombat = unit.inCombat
-                if spell.castTime > 0 then
-                    effectiveCastTime = effectiveCastTime + effectiveCastTime / metrics.self_dtinterval * 0.5
-                    -- bonus value for initiating with long cast
-                    effectiveCastTime = (inCombat and effectiveCastTime or (1 / spell.castTime))
+            local bestSpellUnitPotential = {}
+            if isSpellUsable(spell) then
+                local potential = 0
+                local unitHealth = 0;
+                
+                local everySpellUnitPotential = map(metrics.targets, function(unit)
+                        
+                        local effectiveCastTime = (spell.castTime or 1)
+                        local inCombat = unit.inCombat
+                        if spell.castTime > 0 then
+                            effectiveCastTime = effectiveCastTime + effectiveCastTime / metrics.self_dtinterval * 0.5
+                            -- bonus value for initiating with long cast
+                            effectiveCastTime = (inCombat and effectiveCastTime or (1 / spell.castTime))
+                        end
+                        local effectiveManaCost = (saveMana and (spell.manaCost or 1) or 1)
+                        
+                        local pot = getPotential(potential, unit, spell, effectiveCastTime, effectiveManaCost, metrics.targets)
+                        
+                        local res = table_merge({}, spell, unit, {
+                                potential = pot
+                        })
+                        logger.debug('SpellUnitPotential:', res)
+                        return res
+                        
+                end)
+                
+                if spell.isAoe or spell.effectType == 'LEECH' then
+                    bestSpellUnitPotential = table_merge({}, spell, {
+                            potential = sum(map(everySpellUnitPotential, 'potential'))
+                    })
+                else
+                    bestSpellUnitPotential = findMax(everySpellUnitPotential, 'potential')
                 end
-                local effectiveManaCost = (saveMana and (spell.manaCost or 1) or 1)
-
-                local pot = getPotential(potential, unit, spell, effectiveCastTime, effectiveManaCost, metrics.targets)
-
-                local res = table_merge({}, spell, unit, {
-                    potential = pot
-                })
-                logger.debug('SpellUnitPotential:', res)
-                return res
-
-            end)
-
-            if spell.isAoe or spell.effectType == 'LEECH' then
-                bestSpellUnitPotential = table_merge({}, spell, {
-                    potential = sum(map(everySpellUnitPotential, 'potential'))
-                })
             else
-                bestSpellUnitPotential = findMax(everySpellUnitPotential, 'potential')
+                bestSpellUnitPotential = table_merge({}, spell, {
+                        potential = 0
+                })
+                
             end
-        else
-            bestSpellUnitPotential = table_merge({}, spell, {
-                potential = 0
-            })
-
-        end
-        logger.debug('BestUnitSpellPotential:', bestSpellUnitPotential)
-        return bestSpellUnitPotential;
+            logger.debug('BestUnitSpellPotential:', bestSpellUnitPotential)
+            return bestSpellUnitPotential;
     end)
     _everyBestSpellUnitPotential = everyBestSpellUnitPotential
     local bestBestSpellUnitPotential = findMax(everyBestSpellUnitPotential, 'potential')
-
+    
     if (bestBestSpellUnitPotential and bestBestSpellUnitPotential.potential > 0) then
         logger.info("bestBestSpellUnitPotential", bestBestSpellUnitPotential)
         return bestBestSpellUnitPotential

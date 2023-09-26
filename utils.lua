@@ -7,10 +7,9 @@ LogLevel = {
 }
 
 local function logMessage(level, ...)
-
     if level >= logger.logLevel then
         local result = table.concat(map({...}, function(it)
-            return type(it) == "table" and stringifyTable(it) or tostring(it)
+                    return type(it) == "table" and stringifyTable(it) or tostring(it)
         end), " ")
         print(result)
         return result
@@ -96,7 +95,7 @@ end
 function flattenTable(tbl, parentKey, flatTbl)
     flatTbl = flatTbl or {}
     parentKey = parentKey or ""
-
+    
     for k, v in pairs(tbl) do
         local newKey = parentKey == "" and k or (parentKey .. "." .. k)
         if type(v) == "table" then
@@ -105,7 +104,7 @@ function flattenTable(tbl, parentKey, flatTbl)
             flatTbl[newKey] = v
         end
     end
-
+    
     return flatTbl
 end
 
@@ -118,7 +117,7 @@ function tableToAlignedString(tbl, query)
     local str = ""
     local orderBy = query.orderBy or next(tbl[1] or {})
     local columns = query.columns or {}
-
+    
     -- Default to all columns if none specified
     if #columns == 0 then
         for _, spell in pairs(tbl) do
@@ -144,23 +143,23 @@ function tableToAlignedString(tbl, query)
             table.insert(sortedTbl, k)
         end
         table.sort(sortedTbl, function(a, b)
-
-            local aValue = t[a][orderKey]
-            local bValue = t[b][orderKey]
-
-            aValue = aValue or 0
-            bValue = bValue or 0
-            if aValue ~= aValue then
-                aValue = 0
-            end -- Check for NaN
-            if bValue ~= bValue then
-                bValue = 0
-            end -- Check for NaN
-            return aValue > bValue
+                
+                local aValue = t[a][orderKey]
+                local bValue = t[b][orderKey]
+                
+                aValue = aValue or 0
+                bValue = bValue or 0
+                if aValue ~= aValue then
+                    aValue = 0
+                end -- Check for NaN
+                if bValue ~= bValue then
+                    bValue = 0
+                end -- Check for NaN
+                return aValue > bValue
         end)
         return sortedTbl
     end
-
+    
     -- Initialize column widths
     if columns then
         for _, col in ipairs(columns) do
@@ -173,7 +172,7 @@ function tableToAlignedString(tbl, query)
             end
         end
     end
-
+    
     -- Calculate maximum width
     for spellId, spell in pairs(tbl) do
         for k, v in pairs(spell) do
@@ -182,13 +181,13 @@ function tableToAlignedString(tbl, query)
             end
         end
     end
-
+    
     -- Create header string
     for _, col in ipairs(columns or colWidths) do
         str = str .. col .. string.rep(" ", colWidths[col] - #col) .. " | "
     end
     str = str .. "\n"
-
+    
     -- Create rows
     local sortedKeys = orderBy and sortTable(tbl, orderBy) or pairs(tbl)
     for _, spellId in ipairs(sortedKeys or tbl) do
@@ -199,7 +198,7 @@ function tableToAlignedString(tbl, query)
         end
         str = str .. "\n"
     end
-
+    
     return str
 end
 
@@ -235,15 +234,15 @@ function findMax(targets, metric)
     local max_val = -math.huge
     local max_target = nil
     local keys = {}
-
+    
     for k in pairs(targets or {}) do
         table.insert(keys, k)
     end
-
+    
     for _, k in ipairs(keys) do
         local target = targets[k]
         local val = target and target[metric] or nil
-
+        
         if val ~= nil and type(val) == "number" and tostring(val) ~= "nan" and tostring(val) ~= "-nan" then
             if val > max_val then
                 max_val = val
@@ -251,6 +250,7 @@ function findMax(targets, metric)
             end
         end
     end
-
+    
     return max_target
 end
+

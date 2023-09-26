@@ -5,13 +5,13 @@ local metricIntervals = metricIntervals or {}
 
 function ResetTarget(unit)
     logger.debug("ResetTarget:", unit)
-
+    
     metricDataWA[unit] = {}
     metricRatesWA[unit] = {}
-
+    
     UpdateRates(unit, 'HEALTH', UnitHealth(unit))
     C_Timer.After(1, function()
-        UpdateRates(unit, 'HEALTH', UnitHealth(unit))
+            UpdateRates(unit, 'HEALTH', UnitHealth(unit))
     end)
 end
 
@@ -25,36 +25,36 @@ end
 
 function UpdateRates(unit, metric, value)
     local timestamp = GetTime()
-
+    
     metricDataWA, metricRatesWA, metricIntervals = metricDataWA or {}, metricRatesWA or {}, metricIntervals or {}
-
+    
     local guid = unit or ""
     metricDataWA[guid], metricRatesWA[guid], metricIntervals[guid] = metricDataWA[guid] or {},
-        metricRatesWA[guid] or {}, metricIntervals[guid] or {}
-
+    metricRatesWA[guid] or {}, metricIntervals[guid] or {}
+    
     metricDataWA[guid][metric] = metricDataWA[guid][metric] or {}
     table.insert(metricDataWA[guid][metric], {
-        value = value,
-        timestamp = timestamp
+            value = value,
+            timestamp = timestamp
     })
-
+    
     logger.trace("senseValue:", unit, metric, value, 'time:' .. timestamp)
-
+    
     metricDataWA[guid][metric] = filter(metricDataWA[guid][metric], function(sample)
-        return timestamp - sample.timestamp <= 2
+            return timestamp - sample.timestamp <= 2
     end)
-
+    
     local sum, totalTime, minInterval = 0, 0, math.huge
     local series = metricDataWA[guid][metric]
     for i = 2, #series do
         local deltaValue, deltaTime = series[i].value - series[i - 1].value,
-            series[i].timestamp - series[i - 1].timestamp
+        series[i].timestamp - series[i - 1].timestamp
         sum, totalTime = sum + deltaValue, totalTime + deltaTime
         if deltaValue < 0 then
             minInterval = math.min(minInterval, deltaTime)
         end
     end
-
+    
     metricIntervals[guid][metric], metricRatesWA[guid][metric] = minInterval, (totalTime > 0) and (sum / totalTime) or 0
     logger.trace("senseRate:", unit, metric, metricRatesWA[guid][metric])
 end
@@ -78,7 +78,7 @@ function generateMetrics()
         ttd_mana_self = math.huge,
         self_dtinterval = math.huge
     }
-
+    
     local totalDtpsParty = 0
     local partyCount = 0
     for _unit, metricTable in pairs(metricRatesWA or {}) do
@@ -108,21 +108,21 @@ function generateMetrics()
         end
     end
     local friendlyTargets = filter(metrics.targets, function(x)
-        return x.isFriend
+            return x.isFriend
     end);
     local enemyTargets = filter(metrics.targets, function(x)
-        return not x.isFriend
+            return not x.isFriend
     end)
-
+    
     metrics.maxttd_enemies = maxVal(enemyTargets, 'ttd') or metrics.maxttd_enemies
     metrics.minttd_party = minVal(friendlyTargets, 'ttd') or metrics.minttd_party
     metrics.ttd_mana_self = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].manaTTD or
-                                metrics.ttd_mana_self
+    metrics.ttd_mana_self
     metrics.self_dtinterval = metrics.targets[UnitGUID('player')] and metrics.targets[UnitGUID('player')].dti or
-                                  metrics.self_dtinterval
-
+    metrics.self_dtinterval
+    
     _metrics = metrics
     return metrics
-
+    
 end
 
